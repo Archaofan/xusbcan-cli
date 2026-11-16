@@ -18,3 +18,7 @@ build/
 *.dll
 *.lib
 kerneldlls/
+
+# 内部设计文档（不进仓库，防隐私泄露）
+docs/
+
