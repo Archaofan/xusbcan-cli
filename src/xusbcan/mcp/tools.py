@@ -1,0 +1,90 @@
+"""MCP 工具定义：薄封装 core，只做「参数解析 → 调 core → 序列化 Result」。"""
+
+from __future__ import annotations
+
+import json
+
+from .. import core
+from ..models.frame import CanFrame
+from ..models.result import ErrorCode, Result
+
+
+def _json(result: Result) -> str:
+    return json.dumps(result.to_dict(), ensure_ascii=False)
+
+
+def register_tools(mcp, manager: core.SessionManager) -> None:
+    """把 core 命令注册为 MCP 工具。工具签名是统一语义，不含厂商概念。"""
+
+    @mcp.tool()
+    def list_devices() -> str:
+        """列出配置中的所有设备：别名、通道、能力（fd/channels/interface）、是否已打开。返回结构化 JSON。"""
+        return _json(core.list_devices(manager))
+
+    @mcp.tool()
+    def send_frame(device: str, arbitration_id: int, data: str, is_extended: bool = False) -> str:
+        """发送一帧 CAN 报文。device 为设备别名；arbitration_id 为报文 ID（十进制）；data 为十六进制字节串（如 "01 02 03"）。返回结构化 JSON。"""
+        try:
+            frame = CanFrame(
+                arbitration_id=arbitration_id,
+                data=core.parse_hex(data),
+                is_extended=is_extended,
+            )
+        except ValueError as e:
+            return _json(Result.err(ErrorCode.INVALID_ARGUMENT, str(e)))
+        return _json(core.send(manager, device, frame))
+
+    @mcp.tool()
+    def receive_frame(device: str, timeout: float = 1.0) -> str:
+        """接收一帧 CAN 报文。timeout 为超时（秒）；超时返回 status=ok 且 frame=null。返回结构化 JSON。"""
+        return _json(core.receive(manager, device, timeout))
+
+    @mcp.tool()
+    def monitor(device: str, duration_s: float = 1.0, max_frames: int = 500) -> str:
+        """有界监听一段时间。duration_s 上限 30 秒；返回 data.frames[] + count + truncated。"""
+        return _json(core.monitor(manager, device, duration_s, max_frames))
+
+    @mcp.tool()
+    def get_status(device: str) -> str:
+        """查询会话/设备状态：state、features、receive_owner。返回结构化 JSON。"""
+        return _json(core.status(manager, device))
+
+    @mcp.tool()
+    def open_device(device: str) -> str:
+        """打开设备会话（常驻进程持有，后续 send/receive 复用该会话）。返回结构化 JSON。"""
+        return _json(core.open_session(manager, device))
+
+    @mcp.tool()
+    def close_device(device: str) -> str:
+        """关闭设备会话，释放资源。返回结构化 JSON。"""
+        return _json(core.close_session(manager, device))
+
+    @mcp.tool()
+    def periodic_start(
+        device: str,
+        name: str,
+        arbitration_id: int,
+        data: str,
+        period_s: float,
+        is_extended: bool = False,
+    ) -> str:
+        """启动一条周期发送任务。name 为任务名（用于 stop/list）；period_s 为周期（秒）。返回结构化 JSON。"""
+        try:
+            frame = CanFrame(
+                arbitration_id=arbitration_id,
+                data=core.parse_hex(data),
+                is_extended=is_extended,
+            )
+        except ValueError as e:
+            return _json(Result.err(ErrorCode.INVALID_ARGUMENT, str(e)))
+        return _json(core.periodic_start(manager, device, name, frame, period_s))
+
+    @mcp.tool()
+    def periodic_stop(device: str, name: str) -> str:
+        """停止并移除一条周期发送任务。返回结构化 JSON。"""
+        return _json(core.periodic_stop(manager, device, name))
+
+    @mcp.tool()
+    def periodic_list(device: str) -> str:
+        """列出当前会话的所有周期发送任务。返回结构化 JSON。"""
+        return _json(core.periodic_list(manager, device))

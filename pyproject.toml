@@ -13,11 +13,12 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-mcp = ["mcp>=1.0"]
+mcp = ["mcp>=2.0"]
 dev = ["pytest", "ruff", "mypy"]
 
 [project.scripts]
 xusbcan = "xusbcan.cli.app:main"
+xusbcan-mcp = "xusbcan.mcp.server:main"
 
 [project.entry-points."can.interface"]
 zlg = "xusbcan.adapters.zlg.backend:ZlgBus"
