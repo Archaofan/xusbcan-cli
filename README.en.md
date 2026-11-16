@@ -135,4 +135,4 @@ If you have other CAN adapters (Vector / PEAK / CANalyst / Kvaser / domestic …
 
 ## License
 
-See [`third_party/NOTICES`](third_party/NOTICES) for third-party component licenses.
+This project is licensed under the [MIT License](LICENSE). See [`third_party/NOTICES`](third_party/NOTICES) for third-party component licenses.

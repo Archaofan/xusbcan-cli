@@ -135,4 +135,4 @@ xusbcan-mcp
 
 ## License
 
-第三方组件的许可条款见 [`third_party/NOTICES`](third_party/NOTICES)。
+本项目采用 [MIT License](LICENSE)。第三方组件的许可条款见 [`third_party/NOTICES`](third_party/NOTICES)。
