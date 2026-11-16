@@ -22,6 +22,17 @@
 
 ## 安装
 
+### 从源码安装（当前方式）
+
+```bash
+git clone https://github.com/Archaofan/xusbcan-cli.git
+cd xusbcan-cli
+pip install -e .          # 仅 CLI + 核心
+pip install -e ".[mcp]"   # 追加 MCP 服务器支持
+```
+
+### 从 PyPI 安装（即将提供）
+
 ```bash
 pip install xusbcan-cli        # 仅 CLI + 核心
 pip install xusbcan-cli[mcp]   # 追加 MCP 服务器支持
