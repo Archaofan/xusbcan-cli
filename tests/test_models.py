@@ -24,14 +24,14 @@ def test_can_frame_empty_data():
 
 def test_can_frame_roundtrip_with_can_message():
     f = CanFrame(
-        arbitration_id=0x18FF0002,
+        arbitration_id=0x1234567,
         data=bytes([0xA5] * 8),
         is_extended=True,
         timestamp=1234.5,
         dlc=8,
     )
     m = f.to_can_message()
-    assert m.arbitration_id == 0x18FF0002
+    assert m.arbitration_id == 0x1234567
     assert m.is_extended_id is True
     assert m.data == bytes([0xA5] * 8)
 
