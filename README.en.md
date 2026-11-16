@@ -4,6 +4,8 @@ An AI-Agent-oriented CAN bus debugging tool.
 
 [中文](README.md) | English
 
+> **Disclaimer**: This project has no affiliation, sponsorship, endorsement, or other interest relationship with Guangzhou ZHIYUAN Electronics Co., Ltd. (ZLG) or its products. "ZLG", "zlgcan" and related names are trademarks of their respective owners. This project is an independent third-party tool that interfaces with the hardware through publicly documented APIs; drivers and SDK remain the property of their respective owners, and users obtain them from official channels.
+
 Runs as a backend service with both a standard **CLI** and an **MCP (Model Context Protocol) interface**, letting AI agents directly send / receive / monitor / periodically transmit CAN frames — no manual GUI tooling required. It enables **agent-driven automated joint debugging**.
 
 ## Vision
@@ -27,13 +29,36 @@ pip install xusbcan-cli[mcp]   # + MCP server support
 
 ## Quick Start
 
-### 1. Install the vendor driver
+### 1. Prepare the environment
 
-Install the official driver for your CAN adapter. For the ZLG USBCAN-2E-U, obtain the SDK (containing `zlgcan.dll`) from ZLG and point an environment variable at it:
+**Prerequisites**:
+- Python 3.11+ (64-bit)
+- A ZLG USBCAN-2E-U adapter
+- The ZLG USB device driver (so the OS can detect the device)
+- The ZLG secondary-development SDK package (provides `zlgcan.dll`)
+
+**Get the SDK**: download the SDK package from the official ZLG documentation page:
+
+> https://manual.zlg.cn/web/#/152?page_id=5332
+
+**Extract and you're done** — the extracted SDK directory already contains the required `zlgcan.dll` and `kerneldlls/` (kernel DLLs). No extra arrangement needed.
+
+**Set the environment variable**: point `ZLG_SDK_DIR` at the extracted SDK directory:
 
 ```bash
-# Windows
-set ZLG_SDK_DIR=D:\path\to\zlgcan_x64
+# Windows (PowerShell, user-level, persistent)
+[Environment]::SetEnvironmentVariable("ZLG_SDK_DIR", "D:\path\to\extracted-sdk-dir", "User")
+
+# or temporary (current terminal only)
+set ZLG_SDK_DIR=D:\path\to\extracted-sdk-dir
+```
+
+The directory should look like:
+
+```
+<ZLG_SDK_DIR>/
+├── zlgcan.dll      # core library (required)
+└── kerneldlls/     # kernel DLL directory (required, same dir as zlgcan.dll)
 ```
 
 ### 2. Write `xusbcan.toml`

@@ -4,6 +4,8 @@
 
 中文 | [English](README.en.md)
 
+> **免责声明**：本项目与广州致远电子股份有限公司（周立功/ZLG）及其产品**没有任何关联、赞助、背书或利益关系**。"周立功"、"ZLG"、"zlgcan" 等名称均为其各自权利人的商标。本项目是独立的第三方工具，仅通过公开的二次开发接口对接其硬件；驱动与 SDK 版权归其权利人所有，由用户从官方渠道获取。
+
 以后端服务形态运行，同时提供标准 **CLI** 与 **MCP（Model Context Protocol）接口**，让 AI Agent 能直接完成 CAN 报文的收发、监听、周期发送等调试操作——无需人工操作上位机软件，即可实现 **Agent 自动化联合调试**。
 
 ## 目标与展望
@@ -27,13 +29,36 @@ pip install xusbcan-cli[mcp]   # 追加 MCP 服务器支持
 
 ## 快速开始
 
-### 1. 安装设备驱动
+### 1. 准备环境
 
-安装所用 CAN 卡的官方驱动。以周立功 USBCAN-2E-U 为例，从周立功官方渠道获取 SDK（含 `zlgcan.dll`），并设置环境变量指向 SDK 目录：
+**运行前提**：
+- Python 3.11+（64 位）
+- 一张周立功 USBCAN-2E-U 卡
+- 周立功 USB 设备驱动（让系统识别设备）
+- 周立功二次开发 SDK 资料包（提供 `zlgcan.dll`）
+
+**获取 SDK**：从周立功官方资料页下载二次开发 SDK 资料包：
+
+> https://manual.zlg.cn/web/#/152?page_id=5332
+
+下载后**解压即符合要求**——官方资料包解压出的 SDK 目录已包含运行所需的 `zlgcan.dll` 与 `kerneldlls/`（内核 DLL），无需额外整理。
+
+**配置环境变量**：将解压后的 SDK 目录路径设为环境变量 `ZLG_SDK_DIR`：
 
 ```bash
-# Windows
-set ZLG_SDK_DIR=D:\path\to\zlgcan_x64
+# Windows（PowerShell，用户级持久化）
+[Environment]::SetEnvironmentVariable("ZLG_SDK_DIR", "D:\path\to\解压后的SDK目录", "User")
+
+# 或临时设置（仅当前终端生效）
+set ZLG_SDK_DIR=D:\path\to\解压后的SDK目录
+```
+
+指向的目录结构应为：
+
+```
+<ZLG_SDK_DIR>/
+├── zlgcan.dll      # 核心库（必需）
+└── kerneldlls/     # 内核 DLL 目录（必需，与 zlgcan.dll 同目录）
 ```
 
 ### 2. 编写配置 `xusbcan.toml`
