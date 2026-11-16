@@ -2,6 +2,8 @@
 
 面向 AI Agent 的 CAN 总线调试工具。
 
+中文 | [English](README.en.md)
+
 以后端服务形态运行，同时提供标准 **CLI** 与 **MCP（Model Context Protocol）接口**，让 AI Agent 能直接完成 CAN 报文的收发、监听、周期发送等调试操作——无需人工操作上位机软件，即可实现 **Agent 自动化联合调试**。
 
 ## 目标与展望
@@ -61,7 +63,23 @@ xusbcan status ecu                          # 状态
 xusbcan-mcp
 ```
 
-在你的 MCP 客户端（Claude Desktop / Cursor / Claude Code 等）里配置后，Agent 即可通过 `send_frame`、`receive_frame`、`monitor`、`periodic_start` 等工具直接调试 CAN 总线。
+在你的 MCP 客户端（Claude Desktop / Cursor / Claude Code 等）里注册它。配置示例：
+
+```json
+{
+  "mcpServers": {
+    "xusbcan": {
+      "command": "xusbcan-mcp",
+      "env": {
+        "ZLG_SDK_DIR": "D:\\path\\to\\zlgcan_x64",
+        "XUSBCAN_CONFIG": "D:\\path\\to\\xusbcan.toml"
+      }
+    }
+  }
+}
+```
+
+连接后，Agent 即可通过 `send_frame`、`receive_frame`、`monitor`、`periodic_start` 等工具直接调试 CAN 总线。
 
 ## 支持的硬件
 
