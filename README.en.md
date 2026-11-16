@@ -22,20 +22,20 @@ We aim to make xusbcan-cli the **standard bridge between AI and automotive / ind
 
 ## Install
 
-### From source (current)
+### From PyPI (recommended)
+
+```bash
+pip install xusbcan-cli        # CLI + core only
+pip install xusbcan-cli[mcp]   # + MCP server support
+```
+
+### From source
 
 ```bash
 git clone https://github.com/Archaofan/xusbcan-cli.git
 cd xusbcan-cli
 pip install -e .          # CLI + core only
 pip install -e ".[mcp]"   # + MCP server support
-```
-
-### From PyPI (coming soon)
-
-```bash
-pip install xusbcan-cli        # CLI + core only
-pip install xusbcan-cli[mcp]   # + MCP server support
 ```
 
 ## Quick Start
