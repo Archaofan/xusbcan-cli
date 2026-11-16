@@ -1,0 +1,20 @@
+# xusbcan 示例配置
+# 环境变量 ZLG_SDK_DIR 指向周立功 SDK 目录（含 zlgcan.dll 与 kerneldlls/）
+
+[server]
+backend = "stdio"          # MCP 传输：stdio | http（http 只绑 127.0.0.1）
+log_level = "INFO"
+
+[[devices]]
+name = "can0"              # 逻辑别名，Agent 通过它引用设备
+vendor = "zlg"
+model = "USBCAN-2E-U"
+channel = 0
+nominal = 500000           # 标称波特率，须在标准表 [1M/800k/500k/250k/125k/100k/50k] 内
+
+[[devices]]
+name = "can1"
+vendor = "zlg"
+model = "USBCAN-2E-U"
+channel = 1
+nominal = 500000
