@@ -11,9 +11,10 @@ adapters.zlg）。
 from __future__ import annotations
 
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from enum import Enum
-from typing import Any, Callable
+from enum import StrEnum
+from typing import Any
 
 import can
 
@@ -26,7 +27,7 @@ from ..models.result import ErrorCode, Result
 CLOSE_TIMEOUT_S = 5.0
 
 
-class SessionState(str, Enum):
+class SessionState(StrEnum):
     CLOSED = "closed"
     OPEN = "open"
     ERROR = "error"

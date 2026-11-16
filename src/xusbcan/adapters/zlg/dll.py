@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """zlgcan.dll 的 ctypes 封装 + 惰性加载。
 
 结构体与函数签名**严格照抄** scripts/zlg_probe.py（真机已验证）：

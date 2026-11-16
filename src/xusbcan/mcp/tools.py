@@ -18,12 +18,12 @@ def register_tools(mcp, manager: core.SessionManager) -> None:
 
     @mcp.tool()
     def list_devices() -> str:
-        """列出配置中的所有设备：别名、通道、能力（fd/channels/interface）、是否已打开。返回结构化 JSON。"""
+        """列出配置中的所有设备：别名、通道、能力、是否已打开。返回 JSON。"""
         return _json(core.list_devices(manager))
 
     @mcp.tool()
     def send_frame(device: str, arbitration_id: int, data: str, is_extended: bool = False) -> str:
-        """发送一帧 CAN 报文。device 为设备别名；arbitration_id 为报文 ID（十进制）；data 为十六进制字节串（如 "01 02 03"）。返回结构化 JSON。"""
+        """发送一帧 CAN 报文。device 为别名；data 为十六进制字节串（如 "01 02 03"）。返回 JSON。"""
         try:
             frame = CanFrame(
                 arbitration_id=arbitration_id,
@@ -36,7 +36,7 @@ def register_tools(mcp, manager: core.SessionManager) -> None:
 
     @mcp.tool()
     def receive_frame(device: str, timeout: float = 1.0) -> str:
-        """接收一帧 CAN 报文。timeout 为超时（秒）；超时返回 status=ok 且 frame=null。返回结构化 JSON。"""
+        """接收一帧 CAN 报文。timeout 为超时（秒）；超时返回 status=ok 且 frame=null。"""
         return _json(core.receive(manager, device, timeout))
 
     @mcp.tool()
@@ -68,7 +68,7 @@ def register_tools(mcp, manager: core.SessionManager) -> None:
         period_s: float,
         is_extended: bool = False,
     ) -> str:
-        """启动一条周期发送任务。name 为任务名（用于 stop/list）；period_s 为周期（秒）。返回结构化 JSON。"""
+        """启动周期发送任务。name 为任务名；period_s 为周期（秒）。返回 JSON。"""
         try:
             frame = CanFrame(
                 arbitration_id=arbitration_id,

@@ -6,8 +6,8 @@ zlg 是 python-can 的自定义 interface，经 entry point 注册，与官方 b
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Callable
+from collections.abc import Callable
+from dataclasses import dataclass
 
 import can
 
@@ -22,7 +22,7 @@ class Profile:
     interface: str  # python-can interface 名
     channels: int = 1  # 通道数（能力查询 + 越界检查）
     fd: bool = False  # 是否支持 CAN FD
-    channel_map: Callable[[int], object] | None = None  # 逻辑通道号 → 厂商通道地址
+    channel_map: Callable[[int], int | str] | None = None  # 逻辑通道号 → 厂商通道地址
     options: dict | None = None  # backend 专属选项（不混入厂商联合体）
 
 
@@ -46,7 +46,7 @@ def resolve(spec: DeviceSpec) -> Profile:
         raise KeyError(f"未注册的设备: {spec.vendor}/{spec.model}") from e
 
 
-def open_bus(spec: DeviceSpec) -> can.Bus:
+def open_bus(spec: DeviceSpec) -> can.BusABC:
     """把 DeviceSpec 解析为 can.Bus。channel 经 channel_map 映射；extra/options 透传。"""
     profile = resolve(spec)
 
@@ -59,7 +59,7 @@ def open_bus(spec: DeviceSpec) -> can.Bus:
     kwargs.pop("interface", None)
     kwargs.pop("channel", None)
 
-    channel: object = spec.channel
+    channel: int | str = spec.channel
     if profile.channel_map is not None:
         channel = profile.channel_map(spec.channel)
 

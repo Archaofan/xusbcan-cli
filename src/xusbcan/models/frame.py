@@ -21,17 +21,17 @@ class CanFrame:
     dlc: int | None = None
 
     @classmethod
-    def from_can_message(cls, m: can.Message) -> "CanFrame":
+    def from_can_message(cls, m: can.Message) -> CanFrame:
         return cls(
             arbitration_id=m.arbitration_id,
-            data=m.data,
+            data=bytes(m.data),
             is_extended=m.is_extended_id,
             is_fd=m.is_fd,
             is_remote=m.is_remote_frame,
             bitrate_switch=m.bitrate_switch,
             error_state_indicator=m.error_state_indicator,
             timestamp=m.timestamp,
-            channel=m.channel if m.channel is not None else 0,
+            channel=m.channel if isinstance(m.channel, int) else 0,
             dlc=m.dlc,
         )
 
@@ -44,7 +44,7 @@ class CanFrame:
             is_remote_frame=self.is_remote,
             bitrate_switch=self.bitrate_switch,
             error_state_indicator=self.error_state_indicator,
-            timestamp=self.timestamp,
+            timestamp=self.timestamp if self.timestamp is not None else 0.0,
             channel=self.channel,
             dlc=self.dlc,
         )

@@ -31,6 +31,7 @@ def main(config_path: str | None = None) -> int:
     if result.status == "error":
         print(json.dumps(result.to_dict(), ensure_ascii=False), file=sys.stderr)
         return 1
+    assert manager is not None
     register_tools(mcp, manager)
     mcp.run()
     return 0

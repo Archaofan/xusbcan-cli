@@ -144,7 +144,9 @@ def capture_bounded(session, duration_s: float | None, max_frames: int | None) -
         session.release_receive("monitor")
 
 
-def start_monitor(session, duration_s: float | None = None, max_frames: int | None = None) -> Result:
+def start_monitor(
+    session, duration_s: float | None = None, max_frames: int | None = None
+) -> Result:
     """后台启动监听（会话形态，不阻塞）。运行期间 receive_frame 返回 MONITOR_ACTIVE。"""
     d = _normalize_duration(duration_s)
     if d is None:

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """zlg python-can backend：把周立功 zlgcan.dll 适配成 ``can.Bus(interface='zlg')``。
 
 经 entry point ``zlg = xusbcan.adapters.zlg.backend:ZlgBus`` 注册，与官方 backend

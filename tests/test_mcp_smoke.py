@@ -7,8 +7,8 @@ import asyncio
 import can
 
 from xusbcan.core import SessionManager
-from xusbcan.models import BitrateConfig, DeviceSpec, Result
 from xusbcan.mcp.tools import register_tools
+from xusbcan.models import BitrateConfig, DeviceSpec, Result
 
 
 def _make_manager():

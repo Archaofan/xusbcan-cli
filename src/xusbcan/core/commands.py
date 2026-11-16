@@ -11,7 +11,7 @@
 
 from __future__ import annotations
 
-from typing import Iterable
+from collections.abc import Iterable
 
 import can
 
@@ -76,7 +76,7 @@ def profile_features(profile: Profile) -> dict:
 # --------------------------------------------------------------------------- #
 
 
-def transmit(session: Session, frames: Iterable[CanFrame]) -> Result:
+def transmit(session: Session, frames: CanFrame | Iterable[CanFrame]) -> Result:
     """在已打开的 session 上发送若干帧。多帧发送不是全有或全无。"""
     if isinstance(frames, CanFrame):
         frames = [frames]
@@ -141,10 +141,11 @@ def capture(
 # --------------------------------------------------------------------------- #
 
 
-def send(manager: SessionManager, alias: str, frames: Iterable[CanFrame]) -> Result:
+def send(manager: SessionManager, alias: str, frames: CanFrame | Iterable[CanFrame]) -> Result:
     session, err, reused = manager.acquire(alias)
     if err is not None:
         return err
+    assert session is not None
     try:
         return transmit(session, frames)
     finally:
@@ -155,6 +156,7 @@ def receive(manager: SessionManager, alias: str, timeout: float | None) -> Resul
     session, err, reused = manager.acquire(alias)
     if err is not None:
         return err
+    assert session is not None
     try:
         return receive_frame(session, timeout)
     finally:
@@ -170,6 +172,7 @@ def monitor(
     session, err, reused = manager.acquire(alias)
     if err is not None:
         return err
+    assert session is not None
     try:
         return capture(session, duration_s, max_frames)
     finally:

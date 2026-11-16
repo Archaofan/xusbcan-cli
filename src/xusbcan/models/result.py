@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 SCHEMA_VERSION = "1.0"
 
 
-class ErrorCode(str, Enum):
+class ErrorCode(StrEnum):
     """枚举化错误码。error.code 是 Agent 的程序化分支依据。"""
 
     DEVICE_NOT_FOUND = "DEVICE_NOT_FOUND"
@@ -55,7 +55,7 @@ class Result:
     meta: dict = field(default_factory=dict)
 
     @classmethod
-    def ok(cls, data: Any = None, **meta: Any) -> "Result":
+    def ok(cls, data: Any = None, **meta: Any) -> Result:
         m = {"timestamp": _now(), "schema_version": SCHEMA_VERSION}
         m.update(meta)
         return cls(status="ok", data=data, meta=m)
@@ -70,7 +70,7 @@ class Result:
         detail: str | None = None,
         context: dict | None = None,
         **meta: Any,
-    ) -> "Result":
+    ) -> Result:
         m = {"timestamp": _now(), "schema_version": SCHEMA_VERSION}
         m.update(meta)
         code_str = code.value if isinstance(code, ErrorCode) else str(code)

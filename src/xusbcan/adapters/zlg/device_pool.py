@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """ZlgDevicePool：一张物理卡的设备句柄共享 + 引用计数 + 互斥锁。
 
 key = (device_type, device_index)。首次 acquire 才 ZCAN_OpenDevice，最后一路
