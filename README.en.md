@@ -117,6 +117,16 @@ Then register it in your MCP client. Example config (Claude Desktop / Cursor / C
 
 Once connected, agents can use tools such as `send_frame`, `receive_frame`, `monitor`, `periodic_start` to debug the bus directly.
 
+## Agent skill
+
+This repo ships an installable Agent Skill (`skills/xusbcan`): how to call the CLI and MCP, how to write a standalone send/receive script, and what to do when a call fails. Any client that supports [Agent Skills](https://agentskills.io) can install it:
+
+```bash
+npx skills add Archaofan/xusbcan-cli --skill xusbcan
+```
+
+Run that in the project to install locally, or add `-g` for a user-wide install. Pass `-a` to target a client (for example `claude-code` or `cursor`).
+
 ## Supported hardware
 
 Verified so far: **ZLG USBCAN-2E-U**.

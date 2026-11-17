@@ -117,6 +117,16 @@ xusbcan-mcp
 
 连接后，Agent 即可通过 `send_frame`、`receive_frame`、`monitor`、`periodic_start` 等工具直接调试 CAN 总线。
 
+## 面向 Agent 的 Skill
+
+本仓库附带可安装的 Agent Skill（`skills/xusbcan`），说明如何调用 CLI / MCP、如何写可独立运行的收发脚本，以及常见失败时该怎么处理。任意兼容 [Agent Skills](https://agentskills.io) 的客户端都可以安装，不限于某一种编辑器：
+
+```bash
+npx skills add Archaofan/xusbcan-cli --skill xusbcan
+```
+
+在项目目录中执行即可装到当前工程；加 `-g` 则装到用户目录。需要指定客户端时加上 `-a`（例如 `claude-code`、`cursor`）。
+
 ## 支持的硬件
 
 当前已验证：**周立功 USBCAN-2E-U**。

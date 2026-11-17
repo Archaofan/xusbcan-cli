@@ -1,16 +1,24 @@
 # CLAUDE.md（xusbcan-cli 项目规则）
 
-面向二次开发与 AI Agent 的**公开**约定。真机验证、架构细节、本机脚本只在本地 `docs/` / `scripts/`（不进 git）。
+面向二次开发与 AI Agent 的**公开**约定。真机验证、架构细节、本机脚本只在本地 `docs/` / `scripts/`（不进 git）。公开 CAN 用法在 `skills/xusbcan/`（安装：`npx skills add Archaofan/xusbcan-cli --skill xusbcan`）。
 
-Cursor 另有始终生效规则：`.cursor/rules/privacy-git.mdc`（与本节一致，提交前必遵）。
+Cursor 始终生效规则：`.cursor/rules/privacy-git.mdc`（与本节一致）。
 
 ## 隐私与开源管理（硬约束）
 
-1. **`docs/` 与 `scripts/` 不进 git**：内部架构/评审与真机脚本（可含本机路径）仅留本地；禁止 `git add -f` 强行加入。
-2. **README 只写「使用方式 + 目标展望 + 参与号召」**：禁止架构分层、厂商 SDK 封装细节、设计决策等。
-3. **提交须可公开审查**：无本机绝对路径、真实客户/项目/ECU 名、内部 IP、账号、密钥、令牌。
+1. **`docs/` 与 `scripts/` 不进 git**，也不得原文抄进 `skills/` 或 README。禁止 `git add -f`。
+2. **README 只写「使用方式 + 目标展望 + 参与号召」**（外加一句 Skill 安装）。禁止架构分层、厂商 SDK 封装细节、设计决策。
+3. **提交须可公开审查**：无本机绝对路径、真实客户/项目/ECU 名、内部 IP、账号、密钥、令牌、设备序列号。
 4. **厂商 SDK 二进制不进仓库**：用户自备；许可证原文放 `third_party/NOTICES`。
-5. **未要求勿提交**；`git add` 前自查 diff / status。
+5. **未要求勿提交**。每次 `git add` / `commit` 必须按下面清单全量检查。
+
+### 每次 git 全量脱敏
+
+1. `git status`：无 `docs/`、`scripts/`、DLL。
+2. `git diff` 与 `git diff --cached`：扫描绝对路径、内网 IP、账号、令牌、客户/ECU 名、序列号。
+3. 若包含 `skills/`：对照本地 `docs/`，不得出现 docs 独有路径或板级细节。
+4. commit message 同样可公开。
+5. 未要求不 push；push 前再看 `git log -1 -p`。
 
 ## 二次开发约定
 
