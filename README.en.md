@@ -1,24 +1,22 @@
 # xusbcan-cli
 
-An AI-Agent-oriented CAN bus debugging tool.
+An AI-agent-oriented CAN bus tool. It is meant to cover many adapters. The model verified on hardware in this first stage is the ZLG USBCAN-2E-U.
 
 [中文](README.md) | English
 
-> **Disclaimer**: This project has no affiliation, sponsorship, endorsement, or other interest relationship with Guangzhou ZHIYUAN Electronics Co., Ltd. (ZLG) or its products. "ZLG", "zlgcan" and related names are trademarks of their respective owners. This project is an independent third-party tool that interfaces with the hardware through publicly documented APIs; drivers and SDK remain the property of their respective owners, and users obtain them from official channels.
-
-Runs as a backend service with both a standard **CLI** and an **MCP (Model Context Protocol) interface**, letting AI agents directly send / receive / monitor / periodically transmit CAN frames — no manual GUI tooling required. It enables **agent-driven automated joint debugging**.
+Runs as a backend service with both a standard **CLI** and an **MCP (Model Context Protocol) interface**, so an agent can send, receive, monitor, and periodically transmit CAN frames without a vendor GUI.
 
 ## Vision
 
-In the AI era, agents should be able to drive a CAN bus like any other tool: structured output, stable contracts, programmatic invocation.
+Agents should drive a CAN bus like any other tool: structured output, stable contracts, programmatic invocation.
 
-We aim to make xusbcan-cli the **standard bridge between AI and automotive / industrial CAN buses**, turning "agent-automated bus bring-up, diagnostics and validation" into the norm.
+xusbcan-cli aims to be a bridge between AI and automotive / industrial CAN buses. The first verified model is a starting point, not the scope of the project.
 
 ## Features
 
-- **Unified device abstraction**: CAN adapters from multiple vendors (ZLG / Vector / PEAK / CANalyst …) behind one interface, one command semantics for agents
-- **CLI and MCP share one core**: consistent behavior, structured JSON / JSONL output — no parsing of human-readable logs
-- **Lightweight**: core runtime dependency is just `python-can`
+- **One command set, per-model setup**: CLI and MCP commands stay the same. Drivers, environment variables, and the configured vendor and model change with the card
+- **CLI and MCP share one core**: consistent behavior, structured JSON / JSONL output
+- **Built on python-can**: the project uses that ecosystem and adds a thin command and session layer. Installing this package does not turn on every interface python-can ships
 
 ## Install
 
@@ -40,21 +38,45 @@ pip install -e ".[mcp]"   # + MCP server support
 
 ## Quick Start
 
-### 1. Prepare the environment
+Identify the vendor and model first, then follow that model's driver and config. The ZLG steps below apply only to a confirmed USBCAN-2E-U.
 
-**Prerequisites**:
+### 1. Shared prerequisites and config
+
+Every card uses:
+
 - Python 3.11+ (64-bit)
-- A ZLG USBCAN-2E-U adapter
-- The ZLG USB device driver (so the OS can detect the device)
-- The ZLG secondary-development SDK package (provides `zlgcan.dll`)
+- `xusbcan.toml` (or `--config`, or `XUSBCAN_CONFIG`)
+- A `name` (alias). Commands and MCP tools take that alias
+- `interface`: a python-can backend name. `channel`: an integer or string, as that backend requires. `nominal`: bitrate
+- Further backend arguments go in `extra`. The vendor driver still has to be installed; opening fails when it is missing
 
-**Get the SDK**: download the SDK package from the official ZLG documentation page:
+```toml
+[[devices]]
+name = "bus0"
+interface = "socketcan"   # a backend python-can already declares
+channel = "can0"
+nominal = 500000
+```
+
+Any backend python-can declares can be written this way. No per-model registration in this repo is required. `vendor` / `model` exist for the rows below that need a channel map or extra options. When `interface` is set, that backend is opened and the model table is not applied.
+
+The MCP default transport is stdio. `http` binds `127.0.0.1` only.
+
+```bash
+xusbcan-mcp
+```
+
+### 2. Model-specific: ZLG USBCAN-2E-U (verified on hardware)
+
+This model also needs:
+
+- The ZLG USB driver
+- The ZLG secondary-development SDK (`zlgcan.dll` and `kerneldlls/` beside it)
+- `ZLG_SDK_DIR` pointing at that extracted directory
+
+Download the SDK from the vendor's documentation page:
 
 > https://manual.zlg.cn/web/#/152?page_id=5332
-
-**Extract and you're done** — the extracted SDK directory already contains the required `zlgcan.dll` and `kerneldlls/` (kernel DLLs). No extra arrangement needed.
-
-**Set the environment variable**: point `ZLG_SDK_DIR` at the extracted SDK directory:
 
 ```bash
 # Windows (PowerShell, user-level, persistent)
@@ -64,44 +86,16 @@ pip install -e ".[mcp]"   # + MCP server support
 set ZLG_SDK_DIR=D:\path\to\extracted-sdk-dir
 ```
 
-The directory should look like:
-
-```
-<ZLG_SDK_DIR>/
-├── zlgcan.dll      # core library (required)
-└── kerneldlls/     # kernel DLL directory (required, same dir as zlgcan.dll)
-```
-
-### 2. Write `xusbcan.toml`
-
 ```toml
 [[devices]]
-name = "ecu"          # logical alias agents use to reference the device
+name = "bus0"
 vendor = "zlg"
 model = "USBCAN-2E-U"
 channel = 1
-nominal = 250000      # bitrate
+nominal = 250000
 ```
 
-### 3. Use the CLI
-
-```bash
-xusbcan list
-xusbcan send ecu --id 0x123 --data "01 02 03"
-xusbcan receive ecu --timeout 1
-xusbcan monitor ecu --duration 5
-xusbcan status ecu
-```
-
-### 4. Run the MCP server
-
-```bash
-xusbcan-mcp
-```
-
-The default transport is stdio. If the config selects `http`, the server binds `127.0.0.1` only.
-
-Then register it in your MCP client. Example config (Claude Desktop / Cursor / Claude Code):
+Only this model needs `ZLG_SDK_DIR` in the MCP client config:
 
 ```json
 {
@@ -117,11 +111,25 @@ Then register it in your MCP client. Example config (Claude Desktop / Cursor / C
 }
 ```
 
-Once connected, agents can use tools such as `send_frame`, `receive_frame`, `monitor`, `periodic_start` to debug the bus directly.
+### 3. Use the CLI
+
+```bash
+xusbcan list
+xusbcan send bus0 --id 0x123 --data "01 02 03"
+xusbcan receive bus0 --timeout 1
+xusbcan monitor bus0 --duration 5
+xusbcan status bus0
+xusbcan receive bus0 --timeout 1 --from-id 0x100 --to-id 0x1FF
+xusbcan periodic bus0 --name hb --id 0x123 --data "01" --period 0.1 --duration 5
+```
+
+`periodic` transmits for `--duration` seconds in this process, then stops. A filter applies on every backend: hardware acceptance where that exists, otherwise python-can masks. Use MCP when the session must stay open across calls.
+
+After the MCP server is connected, the agent uses `send_frame`, `receive_frame`, `monitor`, `periodic_start`, and the other tools on the same alias.
 
 ## Agent skill
 
-This repo ships an installable Agent Skill (`skills/xusbcan`): how to call the CLI and MCP, how to write a standalone send/receive script, and what to do when a call fails. Any client that supports [Agent Skills](https://agentskills.io) can install it:
+This repo ships an installable Agent Skill (`skills/xusbcan`). It asks for the model first, then documents the shared commands. Vendor pitfalls stay under that vendor. Any client that supports [Agent Skills](https://agentskills.io) can install it:
 
 ```bash
 npx skills add Archaofan/xusbcan-cli --skill xusbcan
@@ -131,20 +139,34 @@ Run that in the project to install locally, or add `-g` for a user-wide install.
 
 ## Supported hardware
 
-Verified so far: **ZLG USBCAN-2E-U**.
+| Status | Vendor / model | Notes |
+|--------|----------------|-------|
+| Verified on hardware | ZLG USBCAN-2E-U | Backend in this repo. Needs `ZLG_SDK_DIR` plus the vendor driver and SDK |
+| Registered, not verified here | PEAK PCAN-USB | Opens python-can's `pcan`. Needs the PEAK driver, not `ZLG_SDK_DIR` |
+| Registered, not verified here | Vector VN1630 | Opens python-can's `vector`, channels `0` and `1`. Needs the Vector driver. Set `data` for CAN FD |
 
-Built on [python-can](https://python-can.readthedocs.io/), which already covers many vendor backends (Vector, PEAK, socketcan, slcan, Kvaser …). Adding a new adapter usually takes just a backend or a device config — and agents keep the same interface.
+Other python-can backends (socketcan, slcan, Kvaser, and the rest) open through the CLI and MCP when `interface` names them. The table above is only the models that need an extra mapping, not an allow-list. This repo has not verified each card on hardware. Install that card's driver, and set `channel` and `extra` the way python-can documents them.
 
-### Help us support more adapters 🙌
+A card python-can cannot open needs a new backend. If that backend requires the user to supply an SDK, add the vendor to the disclaimer.
 
-If you have other CAN adapters (Vector / PEAK / CANalyst / Kvaser / domestic …), contributions of backends or device configs are very welcome. Getting more hardware usable by AI agents is a core goal of this project.
+### Help support more adapters
+
+Contributions for other models (Vector, PEAK, CANalyst, Kvaser, and others) are welcome. Keep shared config separate from that model's driver and environment variables, and do not mark a model verified before it has been run on hardware.
 
 ## Contributing
 
 - Report issues, request features, submit PRs
-- Contribute adapters for new CAN cards
-- Let's make "agent-automated CAN joint debugging" a general capability
+- Add another CAN adapter model
+- Make agent-driven CAN debugging work across vendors
 
 ## License
 
 This project is licensed under the [MIT License](LICENSE). See [`third_party/NOTICES`](third_party/NOTICES) for third-party component licenses.
+
+## Disclaimer
+
+This project is an independent third-party tool. It has no affiliation, sponsorship, endorsement, or other interest relationship with the vendors below or their products. Vendor and product names are trademarks of their respective owners. Drivers and SDKs remain the property of those owners; users obtain them from official channels.
+
+When a newly supported vendor requires the user to supply an SDK or proprietary driver, add a bullet here. One vendor's notice does not cover the others.
+
+- **Guangzhou ZHIYUAN Electronics Co., Ltd. (ZLG)**: the model this project calls through the public secondary-development API is the USBCAN-2E-U. "ZLG" and "zlgcan" are trademarks of their owner. This project does not ship the vendor driver or `zlgcan.dll`.

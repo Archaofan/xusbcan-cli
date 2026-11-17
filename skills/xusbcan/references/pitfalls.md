@@ -2,6 +2,8 @@
 
 Public behavior only. Do not add machine paths, serial numbers, or customer frame maps.
 
+These notes are for the verified Zhou Ligong USBCAN-2E-U (`interface="zlg"`). Do not apply the filter, ACK-block, online-code, or listen-only behavior to PEAK PCAN-USB, Vector VN1630, or any other python-can backend. Those keep that backend's own semantics. Software periodic send on other backends does not lock out a normal send.
+
 ## Receive goes empty after a filter change
 
 On the verified classic USB-CAN adapter, filters are a whitelist:
@@ -12,7 +14,7 @@ On the verified classic USB-CAN adapter, filters are a whitelist:
 - Clearing the table also needs that acknowledge. An empty table means **receive nothing**, not receive everything.
 - To accept traffic again, install an explicit full standard range and a full extended range, then acknowledge once.
 
-Use `set_frame_filter` on an open session to replace the table with one range, and `accept_all_frames` to receive everything again. Do not stop after a clear: an empty table receives nothing.
+Use `set_frame_filter` on an open session to replace the table with one range, and `accept_all_frames` to receive everything again. Do not stop after a clear: an empty table receives nothing. On other backends the same two tools install and clear python-can masks instead of this hardware table.
 
 ## Transmit blocks for seconds
 
@@ -20,7 +22,7 @@ With no other node to ACK, a normal transmit can block inside the driver for abo
 
 ## Hardware periodic send vs normal send
 
-`periodic_start` on this adapter uses hardware timed transmit. Until every such task is stopped, `send_frame` fails on purpose. Software periodic send on other backends does not have this lockout.
+`periodic_start` on USBCAN-2E-U uses hardware timed transmit. Until every such task is stopped, `send_frame` fails on purpose. Software periodic send on other backends does not have this lockout.
 
 ## Close, then open
 

@@ -41,6 +41,53 @@ nominal = 250000
         os.unlink(path)
 
 
+def test_load_config_accepts_python_can_interface():
+    path = _write_toml(
+        """
+[[devices]]
+name = "sock"
+interface = "socketcan"
+channel = "can0"
+nominal = 500000
+"""
+    )
+    try:
+        r = load_config(path)
+        assert r.status == "ok"
+        spec = r.data.devices[0].spec
+        assert spec.interface == "socketcan"
+        assert spec.channel == "can0"
+        assert spec.vendor == ""
+    finally:
+        os.unlink(path)
+
+
+def test_load_config_reads_fd_timing():
+    path = _write_toml(
+        """
+[[devices]]
+name = "fd0"
+interface = "vector"
+channel = 0
+nominal = 500000
+data = 2000000
+sjw = 2
+tseg1 = 6
+tseg2 = 3
+"""
+    )
+    try:
+        r = load_config(path)
+        assert r.status == "ok"
+        bitrate = r.data.devices[0].spec.bitrate
+        assert bitrate.data == 2_000_000
+        assert bitrate.sjw == 2
+        assert bitrate.tseg1 == 6
+        assert bitrate.tseg2 == 3
+    finally:
+        os.unlink(path)
+
+
 def test_load_config_missing_field_is_config_error():
     path = _write_toml('[[devices]]\nname = "ecu"\n')
     try:

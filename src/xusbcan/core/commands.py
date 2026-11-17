@@ -20,6 +20,7 @@ from ..models.frame import CanFrame
 from ..models.result import ErrorCode, Result
 from . import monitor as monitor_mod
 from . import periodic as periodic_mod
+from .filters import id_masks
 from .session import Session, SessionManager, SessionState, map_error
 
 __all__ = [
@@ -71,6 +72,14 @@ def profile_features(profile: Profile) -> dict:
         "channels": profile.channels,
         "interface": profile.interface,
     }
+
+
+def device_features(spec) -> dict:
+    """直接指定的 python-can 接口，或型号登记表里的能力。"""
+    if spec.interface:
+        fd = bool(spec.bitrate is not None and spec.bitrate.data is not None)
+        return {"fd": fd, "channels": None, "interface": spec.interface}
+    return profile_features(resolve(spec))
 
 
 # --------------------------------------------------------------------------- #
@@ -154,12 +163,41 @@ def send(manager: SessionManager, alias: str, frames: CanFrame | Iterable[CanFra
         manager.release(session, reused)
 
 
-def receive(manager: SessionManager, alias: str, timeout: float | None) -> Result:
+def _apply_optional_filter(
+    session: Session,
+    start_id: int | None,
+    end_id: int | None,
+    is_extended: bool,
+) -> Result | None:
+    if start_id is None and end_id is None:
+        return None
+    if start_id is None or end_id is None:
+        return Result.err(ErrorCode.INVALID_ARGUMENT, "滤波需要同时给出起始和结束 ID")
+    try:
+        apply_frame_filter(session.bus, start_id, end_id, is_extended)
+    except ValueError as e:
+        return Result.err(ErrorCode.INVALID_ARGUMENT, str(e))
+    except can.CanError as e:
+        return Result.err(ErrorCode.CAPABILITY_UNSUPPORTED, str(e))
+    return None
+
+
+def receive(
+    manager: SessionManager,
+    alias: str,
+    timeout: float | None,
+    start_id: int | None = None,
+    end_id: int | None = None,
+    is_extended: bool = False,
+) -> Result:
     session, err, reused = manager.acquire(alias)
     if err is not None:
         return err
     assert session is not None
     try:
+        filtered = _apply_optional_filter(session, start_id, end_id, is_extended)
+        if filtered is not None:
+            return filtered
         return receive_frame(session, timeout)
     finally:
         manager.release(session, reused)
@@ -170,12 +208,18 @@ def monitor(
     alias: str,
     duration_s: float | None = None,
     max_frames: int | None = None,
+    start_id: int | None = None,
+    end_id: int | None = None,
+    is_extended: bool = False,
 ) -> Result:
     session, err, reused = manager.acquire(alias)
     if err is not None:
         return err
     assert session is not None
     try:
+        filtered = _apply_optional_filter(session, start_id, end_id, is_extended)
+        if filtered is not None:
+            return filtered
         return capture(session, duration_s, max_frames)
     finally:
         manager.release(session, reused)
@@ -227,6 +271,31 @@ def periodic_list(manager: SessionManager, alias: str) -> Result:
     return periodic_mod.list_tasks(session)
 
 
+def apply_frame_filter(bus, start_id: int, end_id: int, is_extended: bool = False) -> str:
+    """替换接收范围。有硬件验收表的后端走硬件，其余走 python-can 掩码。返回所用方式。"""
+    hardware = getattr(bus, "set_acceptance", None)
+    if hardware is not None:
+        hardware(start_id, end_id, is_extended)
+        return "hardware"
+    if not hasattr(bus, "set_filters"):
+        raise can.CanError("当前设备不支持滤波")
+    bus.set_filters(id_masks(start_id, end_id, is_extended))
+    return "mask"
+
+
+def clear_frame_filter(bus) -> str:
+    """恢复全收。硬件后端必须显式装回全范围，不能只留空表。"""
+    hardware = getattr(bus, "accept_all", None)
+    if hardware is not None:
+        hardware()
+    if hasattr(bus, "set_filters"):
+        bus.set_filters(None)
+        return "hardware" if hardware is not None else "mask"
+    if hardware is not None:
+        return "hardware"
+    raise can.CanError("当前设备不支持滤波")
+
+
 def set_frame_filter(
     manager: SessionManager,
     alias: str,
@@ -234,22 +303,17 @@ def set_frame_filter(
     end_id: int,
     is_extended: bool = False,
 ) -> Result:
-    """用一条 ID 范围替换接收滤波。需要已打开的会话。不支持的适配器返回 CAPABILITY_UNSUPPORTED。"""
+    """用一条 ID 范围替换接收滤波。需要已打开的会话。"""
     session, err = _require_open(manager, alias)
     if err is not None:
         return err
     assert session is not None
-    fn = getattr(session.bus, "set_acceptance", None)
-    if fn is None:
-        return Result.err(
-            ErrorCode.CAPABILITY_UNSUPPORTED,
-            "当前设备不支持硬件滤波",
-            context={"alias": alias},
-        )
     try:
-        fn(start_id, end_id, is_extended)
+        mode = apply_frame_filter(session.bus, start_id, end_id, is_extended)
+    except ValueError as e:
+        return Result.err(ErrorCode.INVALID_ARGUMENT, str(e))
     except can.CanError as e:
-        return Result.err(ErrorCode.SEND_FAILED, f"设置滤波失败: {e}", detail=str(e))
+        return Result.err(ErrorCode.CAPABILITY_UNSUPPORTED, str(e), context={"alias": alias})
     except Exception as e:
         return Result.err(ErrorCode.INTERNAL_ERROR, f"设置滤波失败: {e}")
     return Result.ok(
@@ -257,6 +321,7 @@ def set_frame_filter(
             "start_id": start_id,
             "end_id": end_id,
             "is_extended": is_extended,
+            "mode": mode,
         }
     )
 
@@ -267,20 +332,13 @@ def accept_all_frames(manager: SessionManager, alias: str) -> Result:
     if err is not None:
         return err
     assert session is not None
-    fn = getattr(session.bus, "accept_all", None)
-    if fn is None:
-        return Result.err(
-            ErrorCode.CAPABILITY_UNSUPPORTED,
-            "当前设备不支持硬件滤波",
-            context={"alias": alias},
-        )
     try:
-        fn()
+        mode = clear_frame_filter(session.bus)
     except can.CanError as e:
-        return Result.err(ErrorCode.SEND_FAILED, f"恢复全收失败: {e}", detail=str(e))
+        return Result.err(ErrorCode.CAPABILITY_UNSUPPORTED, str(e), context={"alias": alias})
     except Exception as e:
         return Result.err(ErrorCode.INTERNAL_ERROR, f"恢复全收失败: {e}")
-    return Result.ok({"accept_all": True})
+    return Result.ok({"accept_all": True, "mode": mode})
 
 
 # --------------------------------------------------------------------------- #
@@ -293,9 +351,9 @@ def list_devices(manager: SessionManager) -> Result:
     devices = []
     for name, spec in manager.specs.items():
         try:
-            profile = resolve(spec)
+            features = device_features(spec)
         except KeyError:
-            profile = None
+            features = {}
         session = manager.get(name)
         opened = session is not None and session.state is SessionState.OPEN
         devices.append(
@@ -303,7 +361,7 @@ def list_devices(manager: SessionManager) -> Result:
                 "name": name,
                 "channel": spec.channel,
                 "opened": opened,
-                "features": profile_features(profile) if profile else {},
+                "features": features,
             }
         )
     return Result.ok({"devices": devices})
@@ -315,14 +373,14 @@ def status(manager: SessionManager, alias: str) -> Result:
     if spec is None:
         return Result.err(ErrorCode.SESSION_NOT_FOUND, f"会话不存在: {alias}")
     try:
-        profile = resolve(spec)
+        features = device_features(spec)
     except KeyError as e:
         return Result.err(ErrorCode.CONFIG_ERROR, str(e))
     session = manager.get(alias)
     return Result.ok(
         {
             "state": (session.state if session is not None else SessionState.CLOSED).value,
-            "features": profile_features(profile),
+            "features": features,
             "receive_owner": session.receive_owner if session is not None else None,
         }
     )

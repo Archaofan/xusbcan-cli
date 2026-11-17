@@ -1,6 +1,6 @@
-# xusbcan 示例配置
-# 环境变量 ZLG_SDK_DIR 指向周立功 SDK 目录（含 zlgcan.dll 与 kerneldlls/）
-# 当前真机：USBCAN-2E-U 使用第 2 个通道（channel=1），对端 ECU 波特率 250 kbit/s
+# 示例配置：下面这台是已真机确认的周立功 USBCAN-2E-U。
+# python-can 已声明的其它后端写 interface（如 socketcan），不必登记型号。
+# USBCAN-2E-U 才需要 ZLG_SDK_DIR（含 zlgcan.dll 与 kerneldlls/）。
 
 [server]
 backend = "stdio"          # MCP 传输：stdio | http（http 只绑 127.0.0.1）

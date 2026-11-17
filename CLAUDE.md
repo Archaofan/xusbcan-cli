@@ -23,6 +23,8 @@ Cursor 始终生效规则：`.cursor/rules/privacy-git.mdc`（与本节一致）
 ## 二次开发约定
 
 - 核心运行时依赖仅 `python-can`；MCP 走 `[mcp]` optional extra。
+- 配置里的 `interface` 使用 python-can 已声明的后端名即可打开，不必先登记型号。`vendor` / `model` 只用于通道映射和专有参数。
+- 公开文档和 skill 把「真机确认」和「仅登记」分开写。厂商驱动、环境变量、踩坑只写在对应型号下。新增一家需用户自备 SDK 的厂商时，README 免责声明追加一条。
 - 厂商差异只在 `src/xusbcan/adapters/`；core / cli / mcp 不出现厂商概念。
 - 输出：`Result`（`error.code` 枚举）+ `CanFrame`（`data` 小写十六进制，`channel` 不进 JSON）。
 - 无硬件测试：`pytest`（`virtual` + 假适配器）须全绿。

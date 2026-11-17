@@ -33,7 +33,7 @@ PROFILES: dict[tuple[str, str], Profile] = {
         "zlg", channels=2, fd=False, options={"device_type": 21, "device_index": 0}
     ),
     ("peak", "PCAN-USB"): Profile("pcan", channel_map=lambda n: f"PCAN_USBBUS{n + 1}"),
-    ("vector", "VN1630"): Profile("vector"),
+    ("vector", "VN1630"): Profile("vector", channels=2, fd=True),
 }
 
 
@@ -46,31 +46,55 @@ def resolve(spec: DeviceSpec) -> Profile:
         raise KeyError(f"未注册的设备: {spec.vendor}/{spec.model}") from e
 
 
-def open_bus(spec: DeviceSpec) -> can.BusABC:
-    """把 DeviceSpec 解析为 can.Bus。channel 经 channel_map 映射；extra/options 透传。"""
-    profile = resolve(spec)
-
-    if spec.channel < 0 or spec.channel >= profile.channels:
-        raise ValueError(f"通道号越界: {spec.channel}（该设备 {profile.channels} 路）")
-
-    kwargs: dict = dict(profile.options or {})
+def _bus_kwargs(
+    spec: DeviceSpec,
+    interface: str,
+    channel: int | str | None,
+    options: dict | None,
+) -> dict:
+    kwargs: dict = dict(options or {})
     kwargs.update(spec.extra or {})
-    # 禁止覆盖 interface / channel
     kwargs.pop("interface", None)
     kwargs.pop("channel", None)
+    kwargs["interface"] = interface
+    kwargs["channel"] = channel
+    kwargs["ignore_config"] = True
+    if spec.bitrate is not None:
+        kwargs["bitrate"] = spec.bitrate.nominal
+        if spec.bitrate.data is not None:
+            kwargs["data_bitrate"] = spec.bitrate.data
+            kwargs["fd"] = True
+        if spec.bitrate.sjw is not None:
+            kwargs.setdefault("sjw", spec.bitrate.sjw)
+            kwargs.setdefault("sjw_abr", spec.bitrate.sjw)
+        if spec.bitrate.tseg1 is not None:
+            kwargs.setdefault("tseg1", spec.bitrate.tseg1)
+            kwargs.setdefault("tseg1_abr", spec.bitrate.tseg1)
+        if spec.bitrate.tseg2 is not None:
+            kwargs.setdefault("tseg2", spec.bitrate.tseg2)
+            kwargs.setdefault("tseg2_abr", spec.bitrate.tseg2)
+    return kwargs
+
+
+def open_bus(spec: DeviceSpec) -> can.BusABC:
+    """打开 can.Bus。写了 interface 就用 python-can 该后端；否则按型号登记做通道映射。"""
+    if spec.interface:
+        if spec.interface not in can.interfaces.VALID_INTERFACES:
+            raise KeyError(f"python-can 未声明该接口: {spec.interface}")
+        return can.Bus(**_bus_kwargs(spec, spec.interface, spec.channel, None))
+
+    profile = resolve(spec)
+    if spec.bitrate is not None and spec.bitrate.data is not None and not profile.fd:
+        raise ValueError(f"{spec.vendor}/{spec.model} 不支持 CAN FD 数据段波特率")
+    if not isinstance(spec.channel, int):
+        raise ValueError(f"该型号的通道必须是整数: {spec.channel!r}")
+    if spec.channel < 0 or spec.channel >= profile.channels:
+        raise ValueError(f"通道号越界: {spec.channel}（该设备 {profile.channels} 路）")
 
     channel: int | str = spec.channel
     if profile.channel_map is not None:
         channel = profile.channel_map(spec.channel)
-
-    bitrate = spec.bitrate.nominal if spec.bitrate else None
-
-    return can.Bus(
-        interface=profile.interface,
-        channel=channel,
-        bitrate=bitrate,
-        **kwargs,
-    )
+    return can.Bus(**_bus_kwargs(spec, profile.interface, channel, profile.options))
 
 
 def open_device(spec: DeviceSpec) -> Result:
@@ -80,7 +104,8 @@ def open_device(spec: DeviceSpec) -> Result:
     except KeyError as e:
         return Result.err(ErrorCode.CONFIG_ERROR, str(e))
     except ValueError as e:
-        return Result.err(ErrorCode.CHANNEL_OUT_OF_RANGE, str(e))
+        code = ErrorCode.CHANNEL_OUT_OF_RANGE if "通道" in str(e) else ErrorCode.CONFIG_ERROR
+        return Result.err(code, str(e))
     except can.CanError as e:
         return Result.err(ErrorCode.DEVICE_OPEN_FAILED, f"打开设备失败: {e}")
     except Exception as e:  # noqa: BLE001 —— 收拢未知异常，避免接口层两套失败

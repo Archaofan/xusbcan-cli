@@ -95,7 +95,9 @@ def register_tools(mcp, manager: core.SessionManager) -> None:
     def set_frame_filter(
         device: str, start_id: int, end_id: int, is_extended: bool = False
     ) -> str:
-        """用一条 ID 范围替换接收滤波（会话须已 open_device）。空表不是全收。"""
+        """用一条 ID 范围替换接收滤波（会话须已 open_device）。
+        有硬件验收表的后端走硬件，其余走 python-can 掩码。
+        """
         return _json(core.set_frame_filter(manager, device, start_id, end_id, is_extended))
 
     @mcp.tool()

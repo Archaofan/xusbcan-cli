@@ -52,8 +52,12 @@ class ZlgBus(BusABC):
         self._channel = int(channel)
         self._device_type = int(kwargs.pop("device_type", ZCAN_USBCAN_2E_U))
         self._device_index = int(kwargs.pop("device_index", 0))
-        # 2E 卡不支持 CAN FD，忽略 data_bitrate
-        kwargs.pop("data_bitrate", None)
+        fd = bool(kwargs.pop("fd", False))
+        data_bitrate = kwargs.pop("data_bitrate", None)
+        for key in ("sjw", "tseg1", "tseg2", "sjw_abr", "tseg1_abr", "tseg2_abr"):
+            kwargs.pop(key, None)
+        if fd or data_bitrate:
+            raise can.CanInitializationError("USBCAN-2E-U 不支持 CAN FD")
         bitrate = kwargs.pop("bitrate", None)
         if bitrate is None:
             raise can.CanInitializationError(

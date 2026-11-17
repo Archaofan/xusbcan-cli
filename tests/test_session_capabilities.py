@@ -122,7 +122,10 @@ def test_virtual_periodic_still_allows_send():
     mgr = SessionManager(opener=opener)
     mgr.register("can0", DeviceSpec("virtual", "virtual", 0, BitrateConfig(500_000)))
     open_session(mgr, "can0")
-    assert set_frame_filter(mgr, "can0", 1, 2).error.code == "CAPABILITY_UNSUPPORTED"
+    filtered = set_frame_filter(mgr, "can0", 0x100, 0x1FF, False)
+    assert filtered.status == "ok"
+    assert filtered.data["mode"] == "mask"
+    assert accept_all_frames(mgr, "can0").status == "ok"
     started = periodic_start(mgr, "can0", "hb", CanFrame(0x123, b"\x01"), 0.05)
     assert started.status == "ok"
     assert send(mgr, "can0", CanFrame(0x11, b"\x02")).status == "ok"

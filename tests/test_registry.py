@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+from unittest import mock
+
 import pytest
 
+from xusbcan.adapters import registry
 from xusbcan.adapters.registry import open_bus, resolve
 from xusbcan.models import BitrateConfig, DeviceSpec
 
@@ -31,10 +34,6 @@ def test_resolve_unknown_vendor_raises():
 
 def test_open_bus_channel_map_and_bitrate():
     """open_bus 正确应用 channel_map 与 bitrate（mock can.Bus 捕获参数）。"""
-    from unittest import mock
-
-    from xusbcan.adapters import registry
-
     spec = DeviceSpec(
         vendor="peak", model="PCAN-USB", channel=0, bitrate=BitrateConfig(nominal=500_000)
     )
@@ -44,6 +43,50 @@ def test_open_bus_channel_map_and_bitrate():
     assert kwargs["interface"] == "pcan"
     assert kwargs["channel"] == "PCAN_USBBUS1"  # channel_map：逻辑 0 → PCAN_USBBUS1
     assert kwargs["bitrate"] == 500_000
+    assert kwargs["ignore_config"] is True
+
+
+def test_vector_profile_allows_second_channel_and_fd():
+    spec = DeviceSpec(
+        vendor="vector",
+        model="VN1630",
+        channel=1,
+        bitrate=BitrateConfig(nominal=500_000, data=2_000_000),
+    )
+    with mock.patch.object(registry.can, "Bus") as mock_bus:
+        registry.open_bus(spec)
+    kwargs = mock_bus.call_args.kwargs
+    assert kwargs["interface"] == "vector"
+    assert kwargs["channel"] == 1
+    assert kwargs["bitrate"] == 500_000
+    assert kwargs["data_bitrate"] == 2_000_000
+    assert kwargs["fd"] is True
+
+
+def test_classic_profile_rejects_data_bitrate():
+    spec = DeviceSpec(
+        vendor="zlg",
+        model="USBCAN-2E-U",
+        channel=0,
+        bitrate=BitrateConfig(nominal=500_000, data=2_000_000),
+    )
+    with pytest.raises(ValueError, match="CAN FD"):
+        open_bus(spec)
+
+
+def test_python_can_interface_opens_without_profile():
+    spec = DeviceSpec(interface="virtual", channel="virt-a", bitrate=BitrateConfig(nominal=500_000))
+    bus = open_bus(spec)
+    try:
+        assert bus.channel_info
+    finally:
+        bus.shutdown()
+
+
+def test_unknown_python_can_interface_raises():
+    spec = DeviceSpec(interface="not-a-real-backend", channel=0)
+    with pytest.raises(KeyError, match="未声明"):
+        open_bus(spec)
 
 
 def test_channel_out_of_range():
