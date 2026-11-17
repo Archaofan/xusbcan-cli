@@ -1,6 +1,5 @@
-# 示例配置：下面这台是已真机确认的周立功 USBCAN-2E-U。
+# 示例配置：周立功 USBCAN-2E-U / USBCAN-II 均需 ZLG_SDK_DIR（含 zlgcan.dll 与 kerneldlls/）。
 # python-can 已声明的其它后端写 interface（如 socketcan），不必登记型号。
-# USBCAN-2E-U 才需要 ZLG_SDK_DIR（含 zlgcan.dll 与 kerneldlls/）。
 
 [server]
 backend = "stdio"          # MCP 传输：stdio | http（http 只绑 127.0.0.1）
@@ -12,3 +11,10 @@ vendor = "zlg"
 model = "USBCAN-2E-U"
 channel = 1                # 物理通道 1（第 2 个通道）
 nominal = 250000           # ECU 波特率 250k
+
+[[devices]]
+name = "usbcan2"           # USBCAN-II
+vendor = "zlg"
+model = "USBCAN-II"
+channel = 0
+nominal = 250000

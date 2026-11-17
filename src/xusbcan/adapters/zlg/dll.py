@@ -26,6 +26,7 @@ UINT64 = ctypes.c_uint64
 VOID_P = ctypes.c_void_p
 
 # ---- 常量 ----
+ZCAN_USBCAN2 = 4  # USBCAN-II
 ZCAN_USBCAN_2E_U = 21
 TYPE_CAN = 0
 STATUS_ERR = 0

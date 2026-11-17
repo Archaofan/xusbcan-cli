@@ -9,7 +9,7 @@ import can
 import pytest
 from can import Message
 
-from xusbcan.adapters.zlg.backend import ZlgBus
+from xusbcan.adapters.zlg.usbcan_2e_u import Usbcan2EUBus
 from xusbcan.core import (
     SessionManager,
     accept_all_frames,
@@ -34,12 +34,13 @@ class _Dll:
         return 1
 
 
-def _bare() -> ZlgBus:
-    bus = ZlgBus.__new__(ZlgBus)
+def _bare() -> Usbcan2EUBus:
+    bus = Usbcan2EUBus.__new__(Usbcan2EUBus)
     bus._hw_jobs = {}
     bus._channel = 0
     bus._dll = _Dll()
     bus._entry = SimpleNamespace(handle=1, lock=threading.Lock())
+    bus.CARD_LABEL = "USBCAN-2E-U"
     return bus
 
 
@@ -63,7 +64,7 @@ def test_hardware_periodic_rejects_duration_and_full_table():
         bus._send_periodic_internal(
             Message(arbitration_id=0x1, data=[1]), 0.01, duration=1
         )
-    for i in range(ZlgBus.HW_PERIODIC_MAX):
+    for i in range(Usbcan2EUBus.HW_PERIODIC_MAX):
         bus._alloc_hw(Message(arbitration_id=i, data=[1]), 10)
     with pytest.raises(can.CanOperationError, match="已满"):
         bus._alloc_hw(Message(arbitration_id=0x99, data=[1]), 10)
