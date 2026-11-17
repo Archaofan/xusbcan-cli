@@ -171,6 +171,7 @@ This project is licensed under the [MIT License](LICENSE). See [`third_party/NOT
 - Use only on an **authorized bench or lab** bus. Do not let an agent transmit unattended on a vehicle control network or an unauthorized production line.
 - Both the CLI and MCP can send and periodically transmit. Confirm wiring, bitrate, and IDs first. For long runs, set an explicit duration or use a local resident process, and accept the operational risk yourself.
 - Keep MCP on the local machine. When HTTP is enabled, it binds to `127.0.0.1` only; do not expose it publicly.
+- **Application-layer budgets (not hardware fail-safe)**: MCP/scenario periodic transmit requires a duration (max 300s). Scenarios also cap wall time (~300s), per-step blocking (~60s), and cumulative `send`/`burst_send` attempts (~10000). Frames from periodic tasks are **not** counted in that 10000; they are bounded by `duration_s` instead. A driver or hardware fault may still leave transmission running.
 
 ## Disclaimer
 

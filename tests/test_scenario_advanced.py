@@ -315,6 +315,70 @@ def test_scenario_multi_device_periodic_cleanup_on_fail():
     mgr.close_all()
 
 
+def test_scenario_sleep_respects_short_deadline():
+    from xusbcan.scenario import runner as runner_mod
+
+    mgr = _mgr()
+    open_session(mgr, "a")
+    old_wall = runner_mod.MAX_SCENARIO_WALL_S
+    runner_mod.MAX_SCENARIO_WALL_S = 0.15
+    try:
+        result = run_scenario(
+            mgr,
+            [{"action": "sleep", "seconds": 1.0}],
+        )
+        assert result.status == "error"
+        err = result.data["steps"][0].get("error") or result.error.message
+        assert "总时长" in err
+        assert result.data["budget"]["overdue"] is True
+    finally:
+        runner_mod.MAX_SCENARIO_WALL_S = old_wall
+    mgr.close_all()
+
+
+def test_scenario_cleanup_continues_after_one_stop_failure():
+    from xusbcan.core import periodic_list, periodic_start, periodic_stop
+    from xusbcan.models import CanFrame
+    from xusbcan.scenario.runner import ScenarioRuntime
+
+    mgr = _mgr()
+    open_session(mgr, "a")
+    open_session(mgr, "b")
+    started_a = periodic_start(
+        mgr, "a", "ha", CanFrame(0x100, b"\x01"), 0.05, duration_s=30.0
+    )
+    started_b = periodic_start(
+        mgr, "b", "hb", CanFrame(0x200, b"\x02"), 0.05, duration_s=30.0
+    )
+    assert started_a.status == "ok"
+    assert started_b.status == "ok"
+    sa = mgr.get("a")
+    assert sa is not None
+    pt = sa.pop_periodic("ha")
+    assert pt is not None
+    real = pt.task
+
+    class _Boom:
+        def stop(self) -> None:
+            raise RuntimeError("stop a failed")
+
+    pt.task = _Boom()
+    sa.add_periodic("ha", pt)
+    runtime = ScenarioRuntime()
+    runtime.note_periodic("a", "ha")
+    runtime.note_periodic("b", "hb")
+    cleaned = runtime.cleanup_periodics(mgr)
+    by = {(c["device"], c["name"]): c for c in cleaned}
+    assert by[("a", "ha")]["stopped"] is False
+    assert "error" in by[("a", "ha")]
+    assert by[("b", "hb")]["stopped"] is True
+    assert periodic_list(mgr, "b").data["tasks"] == []
+    assert len(periodic_list(mgr, "a").data["tasks"]) == 1
+    pt.task = real
+    assert periodic_stop(mgr, "a", "ha").status == "ok"
+    mgr.close_all()
+
+
 def test_mcp_run_scenario_tool():
     mgr = _mgr()
     host = _Host()

@@ -132,6 +132,44 @@ def test_periodic_duration_auto_stops():
     assert over.error.code == "INVALID_ARGUMENT"
 
 
+def test_periodic_rejects_nonfinite_period():
+    mgr = _virtual_manager()
+    mgr.open("can0")
+    f = CanFrame(arbitration_id=0x123, data=b"\x01")
+    bad = periodic_start(mgr, "can0", "p1", f, float("nan"))
+    assert bad.status == "error"
+    assert bad.error is not None
+    assert bad.error.code == "INVALID_ARGUMENT"
+
+
+def test_periodic_stop_failure_keeps_registration():
+    mgr = _virtual_manager()
+    mgr.open("can0")
+    f = CanFrame(arbitration_id=0x123, data=b"\x01")
+    assert periodic_start(mgr, "can0", "p1", f, 0.1).status == "ok"
+    session = mgr.get("can0")
+    assert session is not None
+    pt = session.pop_periodic("p1")
+    assert pt is not None
+    real_task = pt.task
+
+    class _BoomStop:
+        def stop(self) -> None:
+            raise RuntimeError("hw stop fail")
+
+    pt.task = _BoomStop()
+    assert session.add_periodic("p1", pt)
+    failed = periodic_stop(mgr, "can0", "p1")
+    assert failed.status == "error"
+    assert failed.error is not None
+    assert "停止周期发送失败" in failed.error.message
+    assert len(periodic_list(mgr, "can0").data["tasks"]) == 1
+
+    pt.task = real_task
+    assert periodic_stop(mgr, "can0", "p1").status == "ok"
+    assert periodic_list(mgr, "can0").data["tasks"] == []
+
+
 class _FailingBus(can.BusABC):
     """假适配器：第 fail_at 帧发送抛 CanOperationError，覆盖「部分发送」分支。"""
 

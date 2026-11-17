@@ -193,5 +193,6 @@ class _HwSendTask(can.broadcastmanager.CyclicSendTaskABC):
     def stop(self) -> None:
         if not self._running:
             raise can.CanError("周期任务已停止")
-        self._running = False
+        # 先停硬件，成功后再清标志，便于失败时重试 stop
         self._bus._stop_hw_index(self._index)
+        self._running = False
