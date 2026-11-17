@@ -99,6 +99,8 @@ xusbcan status ecu
 xusbcan-mcp
 ```
 
+The default transport is stdio. If the config selects `http`, the server binds `127.0.0.1` only.
+
 Then register it in your MCP client. Example config (Claude Desktop / Cursor / Claude Code):
 
 ```json

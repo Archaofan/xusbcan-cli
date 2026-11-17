@@ -12,7 +12,7 @@ On the verified classic USB-CAN adapter, filters are a whitelist:
 - Clearing the table also needs that acknowledge. An empty table means **receive nothing**, not receive everything.
 - To accept traffic again, install an explicit full standard range and a full extended range, then acknowledge once.
 
-The product does not expose filter setup on the CLI. Do not experiment with filters unless the user asked, and always restore accept-all before you finish.
+Use `set_frame_filter` on an open session to replace the table with one range, and `accept_all_frames` to receive everything again. Do not stop after a clear: an empty table receives nothing.
 
 ## Transmit blocks for seconds
 
@@ -20,7 +20,7 @@ With no other node to ACK, a normal transmit can block inside the driver for abo
 
 ## Hardware periodic send vs normal send
 
-If hardware timed transmit is enabled on a channel, a following normal transmit can fail immediately until that timed list is cleared. Software periodic send (`send_periodic` / MCP `periodic_start`) does not have this lockout. Do not mix the two on the same channel.
+`periodic_start` on this adapter uses hardware timed transmit. Until every such task is stopped, `send_frame` fails on purpose. Software periodic send on other backends does not have this lockout.
 
 ## Close, then open
 

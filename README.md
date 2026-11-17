@@ -99,6 +99,8 @@ xusbcan status ecu                          # 状态
 xusbcan-mcp
 ```
 
+默认走 stdio。若配置里把传输设为 `http`，服务只绑定 `127.0.0.1`。
+
 在你的 MCP 客户端（Claude Desktop / Cursor / Claude Code 等）里注册它。配置示例：
 
 ```json

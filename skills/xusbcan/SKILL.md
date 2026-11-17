@@ -34,7 +34,7 @@ When not to use: changing product firmware, writing a new vendor backend, or edi
 | Need | Use |
 |------|-----|
 | One command, then exit | CLI: `list` `send` `receive` `monitor` `status` |
-| Agent tools, session, software periodic | MCP: `open_device`, `send_frame`, `receive_frame`, `monitor`, `periodic_start` / `periodic_stop` / `periodic_list`, `close_device` |
+| Agent tools, session, periodic | MCP: `open_device`, `send_frame`, `receive_frame`, `monitor`, `periodic_start` / `periodic_stop` / `periodic_list`, `set_frame_filter`, `accept_all_frames`, `close_device` |
 | Hours-long send/receive with no agent | One Python process holding `can.Bus` or a core session |
 
 CLI and one-shot MCP calls open and close the device each time. Do not loop them for a long job.

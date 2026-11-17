@@ -1,0 +1,140 @@
+"""无硬件：硬件周期发送互斥、滤波会话接口、MCP HTTP 只绑环回。"""
+
+from __future__ import annotations
+
+import threading
+from types import SimpleNamespace
+
+import can
+import pytest
+from can import Message
+
+from xusbcan.adapters.zlg.backend import ZlgBus
+from xusbcan.core import (
+    SessionManager,
+    accept_all_frames,
+    open_session,
+    periodic_start,
+    periodic_stop,
+    send,
+    set_frame_filter,
+)
+from xusbcan.mcp.server import resolve_mcp_transport
+from xusbcan.models import BitrateConfig, CanFrame, DeviceSpec, Result
+
+
+class _Dll:
+    def __init__(self) -> None:
+        self.paths: list[str] = []
+
+    def ZCAN_SetValue(self, handle, path, value):
+        self.paths.append(path.decode() if isinstance(path, bytes) else path)
+        return 1
+
+
+def _bare() -> ZlgBus:
+    bus = ZlgBus.__new__(ZlgBus)
+    bus._hw_jobs = {}
+    bus._channel = 0
+    bus._dll = _Dll()
+    bus._entry = SimpleNamespace(handle=1, lock=threading.Lock())
+    return bus
+
+
+def test_hardware_periodic_blocks_send_until_stop():
+    bus = _bare()
+    task = bus._send_periodic_internal(
+        Message(arbitration_id=0x123, data=[1, 2]), 0.05
+    )
+    assert bus._hw_jobs
+    assert "0/clear_auto_send" in bus._dll.paths
+    assert "0/auto_send" in bus._dll.paths
+    with pytest.raises(can.CanOperationError, match="硬件周期发送"):
+        bus.send(Message(arbitration_id=0x1, data=[1]))
+    task.stop()
+    assert bus._hw_jobs == {}
+
+
+def test_hardware_periodic_rejects_duration_and_full_table():
+    bus = _bare()
+    with pytest.raises(can.CanOperationError, match="duration"):
+        bus._send_periodic_internal(
+            Message(arbitration_id=0x1, data=[1]), 0.01, duration=1
+        )
+    for i in range(ZlgBus.HW_PERIODIC_MAX):
+        bus._alloc_hw(Message(arbitration_id=i, data=[1]), 10)
+    with pytest.raises(can.CanOperationError, match="已满"):
+        bus._alloc_hw(Message(arbitration_id=0x99, data=[1]), 10)
+
+
+def test_acceptance_replaces_table_and_accept_all_acks():
+    bus = _bare()
+    bus.set_acceptance(0x100, 0x100, False)
+    assert bus._dll.paths[-1] == "0/filter_ack"
+    assert "0/filter_clear" in bus._dll.paths
+    bus._dll.paths.clear()
+    bus.accept_all()
+    assert "0/filter_ack" in bus._dll.paths
+    assert bus._dll.paths.count("0/filter_start") == 2
+    with pytest.raises(can.CanOperationError):
+        bus.set_acceptance(0, 0x800, False)
+
+
+def test_filter_tools_need_capability_and_open_session():
+    class _Bus:
+        def __init__(self) -> None:
+            self.calls: list[tuple] = []
+
+        def set_acceptance(self, start, end, is_extended):
+            self.calls.append(("set", start, end, is_extended))
+
+        def accept_all(self):
+            self.calls.append(("all",))
+
+        def shutdown(self):
+            return None
+
+    holder: dict = {}
+
+    def opener(spec: DeviceSpec):
+        bus = _Bus()
+        holder["bus"] = bus
+        return Result.ok(bus)
+
+    mgr = SessionManager(opener=opener)
+    mgr.register(
+        "can0",
+        DeviceSpec("zlg", "USBCAN-2E-U", 0, BitrateConfig(500_000)),
+    )
+    assert set_frame_filter(mgr, "can0", 1, 2, False).status == "error"
+    open_session(mgr, "can0")
+    r = set_frame_filter(mgr, "can0", 0x100, 0x1FF, True)
+    assert r.status == "ok"
+    assert holder["bus"].calls[-1] == ("set", 0x100, 0x1FF, True)
+    assert accept_all_frames(mgr, "can0").status == "ok"
+    mgr.close_all()
+
+
+def test_virtual_periodic_still_allows_send():
+    def opener(spec: DeviceSpec):
+        return Result.ok(can.Bus(interface="virtual", channel="vf", bitrate=500_000))
+
+    mgr = SessionManager(opener=opener)
+    mgr.register("can0", DeviceSpec("virtual", "virtual", 0, BitrateConfig(500_000)))
+    open_session(mgr, "can0")
+    assert set_frame_filter(mgr, "can0", 1, 2).error.code == "CAPABILITY_UNSUPPORTED"
+    started = periodic_start(mgr, "can0", "hb", CanFrame(0x123, b"\x01"), 0.05)
+    assert started.status == "ok"
+    assert send(mgr, "can0", CanFrame(0x11, b"\x02")).status == "ok"
+    assert periodic_stop(mgr, "can0", "hb").status == "ok"
+    mgr.close_all()
+
+
+def test_http_transport_is_loopback_only():
+    kind, opts = resolve_mcp_transport({"backend": "stdio"})
+    assert kind == "stdio" and opts == {}
+    kind, opts = resolve_mcp_transport({"backend": "http", "port": 9000})
+    assert kind == "streamable-http"
+    assert opts == {"host": "127.0.0.1", "port": 9000}
+    with pytest.raises(ValueError, match="127.0.0.1"):
+        resolve_mcp_transport({"backend": "http", "host": "0.0.0.0"})

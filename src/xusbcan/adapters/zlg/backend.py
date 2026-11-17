@@ -67,6 +67,7 @@ class ZlgBus(BusABC):
         self._entry = device_pool.acquire(self._device_type, self._device_index)
         self._ch_handle = INVALID_HANDLE
         self._ts_ref: tuple[int, float] | None = None  # (设备微秒, Unix 秒) 参考点
+        self._hw_jobs: dict[int, tuple[Message, int]] = {}  # index -> (帧, 周期 ms)
 
         try:
             self._open_channel()
@@ -127,6 +128,10 @@ class ZlgBus(BusABC):
 
     # ---- 发送 ----
     def send(self, msg: Message, timeout=None) -> None:
+        if self._hw_jobs:
+            raise can.CanOperationError(
+                "硬件周期发送进行中，普通发送被禁止；请先停止周期任务"
+            )
         if msg.is_fd:
             # 2E 卡不支持 CAN FD，不送进 DLL
             raise ZlgCapabilityUnsupportedError(
@@ -163,26 +168,30 @@ class ZlgBus(BusABC):
                 f"ZCAN_Transmit 发送失败，成功帧数 {sent}（期望 1）"
             )
 
-    # ---- 硬件定时发送 ----
-    def start_auto_send(self, msg: Message, interval_ms: int, index: int = 0) -> None:
-        """启动硬件定时发送（2E 卡每通道最多 32 条，interval 单位 ms）。
+    # ---- 硬件定时发送（send_periodic 的适配层覆盖）----
+    HW_PERIODIC_MAX = 32
 
-        注意：2E 卡开启硬件定时发送后，不能再调用普通 send()（ZCAN_Transmit）。
-        """
+    def _set_prop(self, path: str, value: bytes | ctypes.c_char_p) -> None:
+        ok = self._dll.ZCAN_SetValue(self._entry.handle, path.encode("ascii"), value)
+        if ok != STATUS_OK:
+            raise can.CanOperationError(f"ZCAN_SetValue({path}) 失败，返回 {ok}")
+
+    def _fill_tx(self, msg: Message) -> tuple[int, int, bytes]:
         if msg.is_fd:
             raise ZlgCapabilityUnsupportedError("USBCAN-2E-U 不支持 CAN FD")
-
         data = bytes(msg.data) if msg.data is not None else b""
         dlc = int(msg.dlc or 0) if msg.is_remote_frame else len(data)
         if dlc > 8:
             raise can.CanOperationError(f"经典 CAN 数据长度 {dlc} 超过 8 字节")
-
         can_id = msg.arbitration_id & 0x1FFFFFFF
         if msg.is_extended_id:
             can_id |= 0x80000000
         if msg.is_remote_frame:
             can_id |= 0x40000000
+        return can_id, dlc, data
 
+    def _program_one(self, msg: Message, interval_ms: int, index: int) -> None:
+        can_id, dlc, data = self._fill_tx(msg)
         obj = ZCAN_AUTO_TRANSMIT_OBJ()
         obj.enable = 1
         obj.index = index
@@ -192,28 +201,111 @@ class ZlgBus(BusABC):
         for i, b in enumerate(data[:8]):
             obj.obj.frame.data[i] = b
         obj.obj.transmit_type = 0
-
-        # SetValue 的 value 是 const void*，这里传结构体指针（cast 成 char*）
         ptr = ctypes.cast(ctypes.pointer(obj), ctypes.c_char_p)
+        self._set_prop(f"{self._channel}/auto_send", ptr)
+
+    def _clear_hw_device(self) -> None:
+        self._set_prop(f"{self._channel}/clear_auto_send", b"0")
+
+    def _program_all_hw(self) -> None:
+        """清空后按表重下。设备侧 clear 会清整表，停止单条时也必须重下其余条目。"""
         with self._entry.lock:
-            ok = self._dll.ZCAN_SetValue(
-                self._entry.handle, f"{self._channel}/auto_send".encode("ascii"), ptr
-            )
-        if ok != STATUS_OK:
-            raise can.CanOperationError(f"ZCAN_SetValue(auto_send) 失败，返回 {ok}")
+            self._clear_hw_device()
+            for index, (msg, interval_ms) in sorted(self._hw_jobs.items()):
+                self._program_one(msg, interval_ms, index)
+
+    def _alloc_hw(self, msg: Message, interval_ms: int) -> int:
+        if interval_ms < 1:
+            raise can.CanOperationError("硬件周期发送最小周期为 1ms")
+        used = set(self._hw_jobs)
+        for index in range(self.HW_PERIODIC_MAX):
+            if index not in used:
+                self._hw_jobs[index] = (msg, interval_ms)
+                return index
+        raise can.CanOperationError(
+            f"硬件周期发送已满（最多 {self.HW_PERIODIC_MAX} 条）"
+        )
+
+    def _stop_hw_index(self, index: int) -> None:
+        if index not in self._hw_jobs:
+            return
+        del self._hw_jobs[index]
+        self._program_all_hw()
+
+    def start_auto_send(self, msg: Message, interval_ms: int, index: int = 0) -> None:
+        """启动一条硬件定时发送。开启后本通道不能再普通 send()，直到全部停止。"""
+        if index < 0 or index >= self.HW_PERIODIC_MAX:
+            raise can.CanOperationError(f"定时发送索引越界: {index}")
+        if index in self._hw_jobs:
+            raise can.CanOperationError(f"定时发送索引已被占用: {index}")
+        self._fill_tx(msg)
+        self._hw_jobs[index] = (msg, int(interval_ms))
+        self._program_all_hw()
 
     def stop_auto_send(self) -> None:
-        """清除本通道的硬件定时发送。"""
+        """清除本通道全部硬件定时发送，并恢复普通发送。"""
+        self._hw_jobs.clear()
         with self._entry.lock:
-            ok = self._dll.ZCAN_SetValue(
-                self._entry.handle,
-                f"{self._channel}/clear_auto_send".encode("ascii"),
-                b"0",
-            )
-        if ok != STATUS_OK:
+            self._clear_hw_device()
+
+    def _send_periodic_internal(
+        self, msgs, period, duration=None, autostart=True, modifier_callback=None
+    ):
+        """python-can send_periodic 的硬件实现。不支持 duration 与数据改写回调。"""
+        if duration is not None or modifier_callback is not None:
             raise can.CanOperationError(
-                f"ZCAN_SetValue(clear_auto_send) 失败，返回 {ok}"
+                "硬件周期发送不支持 duration 或 modifier_callback"
             )
+        if isinstance(msgs, Message):
+            messages = [msgs]
+        else:
+            messages = list(msgs)
+        if len(messages) != 1:
+            raise can.CanOperationError("硬件周期发送每次只支持一帧")
+        interval_ms = int(round(float(period) * 1000))
+        msg = messages[0]
+        index = self._alloc_hw(msg, interval_ms)
+        task = _HwSendTask(self, msg, float(period), index)
+        if not autostart:
+            del self._hw_jobs[index]
+            return task
+        try:
+            task.start()
+        except Exception:
+            self._hw_jobs.pop(index, None)
+            raise
+        return task
+
+    # ---- 硬件滤波（运行时，非掉电保存）----
+    def set_acceptance(self, start: int, end: int, is_extended: bool) -> None:
+        """用一条范围替换本通道滤波表。空表不会被留下。"""
+        start_i, end_i = int(start), int(end)
+        limit = 0x1FFFFFFF if is_extended else 0x7FF
+        if start_i < 0 or end_i < start_i or end_i > limit:
+            raise can.CanOperationError(
+                f"滤波范围非法: 0x{start_i:X}..0x{end_i:X} extended={is_extended}"
+            )
+        mode = b"1" if is_extended else b"0"
+        ch = self._channel
+        with self._entry.lock:
+            self._set_prop(f"{ch}/filter_clear", b"0")
+            self._set_prop(f"{ch}/filter_mode", mode)
+            self._set_prop(f"{ch}/filter_start", f"0x{start_i:08X}".encode("ascii"))
+            self._set_prop(f"{ch}/filter_end", f"0x{end_i:08X}".encode("ascii"))
+            self._set_prop(f"{ch}/filter_ack", b"0")
+
+    def accept_all(self) -> None:
+        """恢复全收：标准帧全范围 + 扩展帧全范围，再确认一次。"""
+        ch = self._channel
+        with self._entry.lock:
+            self._set_prop(f"{ch}/filter_clear", b"0")
+            self._set_prop(f"{ch}/filter_mode", b"0")
+            self._set_prop(f"{ch}/filter_start", b"0x00000000")
+            self._set_prop(f"{ch}/filter_end", b"0x000007FF")
+            self._set_prop(f"{ch}/filter_mode", b"1")
+            self._set_prop(f"{ch}/filter_start", b"0x00000000")
+            self._set_prop(f"{ch}/filter_end", b"0x1FFFFFFF")
+            self._set_prop(f"{ch}/filter_ack", b"0")
 
     # ---- 接收 ----
     def _recv_internal(self, timeout):
@@ -272,7 +364,38 @@ class ZlgBus(BusABC):
     def shutdown(self) -> None:
         if getattr(self, "_is_shutdown", False):
             return
+        self._hw_jobs.clear()
+        try:
+            with self._entry.lock:
+                self._clear_hw_device()
+        except Exception:
+            pass
         super().shutdown()  # 置 _is_shutdown + 停周期任务
         # 释放通道句柄，再归还设备池引用（最后一路才 CloseDevice）
         self._release_channel()
         device_pool.release(self._device_type, self._device_index)
+
+
+class _HwSendTask(can.broadcastmanager.CyclicSendTaskABC):
+    """一条硬件定时发送。stop 后从设备表删除并重下其余条目。"""
+
+    def __init__(self, bus: ZlgBus, msg: Message, period: float, index: int) -> None:
+        super().__init__(msg, period)
+        self._bus = bus
+        self._index = index
+        self._running = False
+
+    def start(self) -> None:
+        if self._running:
+            return
+        if self._index not in self._bus._hw_jobs:
+            interval_ms = int(round(self.period * 1000))
+            self._index = self._bus._alloc_hw(self.messages[0], interval_ms)
+        self._bus._program_all_hw()
+        self._running = True
+
+    def stop(self) -> None:
+        if not self._running:
+            raise can.CanError("周期任务已停止")
+        self._running = False
+        self._bus._stop_hw_index(self._index)

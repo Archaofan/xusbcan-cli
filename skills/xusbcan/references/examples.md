@@ -23,8 +23,11 @@ Typical order for a session:
 1. `list_devices`
 2. `open_device` with the alias
 3. `send_frame` / `receive_frame` / `monitor`
-4. `periodic_start` with `period_s` in seconds, then `periodic_stop`
-5. `close_device`
+4. `periodic_start` with `period_s` in seconds, then `periodic_stop` (on this adapter periodic send is hardware-timed: `send_frame` fails until every periodic task is stopped)
+5. `set_frame_filter` to keep one ID range, then `accept_all_frames` before `close_device` if the bus should receive everything again
+6. `close_device`
+
+HTTP MCP, when enabled in config, listens on `127.0.0.1` only. Do not point it at a public address.
 
 `receive_frame` with no traffic returns `status=ok` and a null frame when `timeout` elapses.
 

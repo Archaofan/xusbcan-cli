@@ -5,6 +5,7 @@ adapters.zlg），绝不 import 厂商代码。
 """
 
 from .commands import (
+    accept_all_frames,
     capture,
     close_session,
     list_devices,
@@ -18,6 +19,7 @@ from .commands import (
     receive,
     receive_frame,
     send,
+    set_frame_filter,
     status,
     transmit,
 )
@@ -46,5 +48,7 @@ __all__ = [
     "periodic_start",
     "periodic_stop",
     "periodic_list",
+    "set_frame_filter",
+    "accept_all_frames",
     "parse_hex",
 ]

@@ -38,6 +38,8 @@ __all__ = [
     "periodic_start",
     "periodic_stop",
     "periodic_list",
+    "set_frame_filter",
+    "accept_all_frames",
 ]
 
 
@@ -223,6 +225,62 @@ def periodic_list(manager: SessionManager, alias: str) -> Result:
     if err is not None:
         return err
     return periodic_mod.list_tasks(session)
+
+
+def set_frame_filter(
+    manager: SessionManager,
+    alias: str,
+    start_id: int,
+    end_id: int,
+    is_extended: bool = False,
+) -> Result:
+    """用一条 ID 范围替换接收滤波。需要已打开的会话。不支持的适配器返回 CAPABILITY_UNSUPPORTED。"""
+    session, err = _require_open(manager, alias)
+    if err is not None:
+        return err
+    assert session is not None
+    fn = getattr(session.bus, "set_acceptance", None)
+    if fn is None:
+        return Result.err(
+            ErrorCode.CAPABILITY_UNSUPPORTED,
+            "当前设备不支持硬件滤波",
+            context={"alias": alias},
+        )
+    try:
+        fn(start_id, end_id, is_extended)
+    except can.CanError as e:
+        return Result.err(ErrorCode.SEND_FAILED, f"设置滤波失败: {e}", detail=str(e))
+    except Exception as e:
+        return Result.err(ErrorCode.INTERNAL_ERROR, f"设置滤波失败: {e}")
+    return Result.ok(
+        {
+            "start_id": start_id,
+            "end_id": end_id,
+            "is_extended": is_extended,
+        }
+    )
+
+
+def accept_all_frames(manager: SessionManager, alias: str) -> Result:
+    """恢复接收全部帧。清滤波后的空表不会当成全收。"""
+    session, err = _require_open(manager, alias)
+    if err is not None:
+        return err
+    assert session is not None
+    fn = getattr(session.bus, "accept_all", None)
+    if fn is None:
+        return Result.err(
+            ErrorCode.CAPABILITY_UNSUPPORTED,
+            "当前设备不支持硬件滤波",
+            context={"alias": alias},
+        )
+    try:
+        fn()
+    except can.CanError as e:
+        return Result.err(ErrorCode.SEND_FAILED, f"恢复全收失败: {e}", detail=str(e))
+    except Exception as e:
+        return Result.err(ErrorCode.INTERNAL_ERROR, f"恢复全收失败: {e}")
+    return Result.ok({"accept_all": True})
 
 
 # --------------------------------------------------------------------------- #

@@ -68,7 +68,9 @@ def register_tools(mcp, manager: core.SessionManager) -> None:
         period_s: float,
         is_extended: bool = False,
     ) -> str:
-        """启动周期发送任务。name 为任务名；period_s 为周期（秒）。返回 JSON。"""
+        """启动周期发送。name 为任务名；period_s 为周期（秒）。
+        支持硬件定时发送的适配器会走硬件周期，期间普通 send_frame 会失败，需先 periodic_stop。
+        """
         try:
             frame = CanFrame(
                 arbitration_id=arbitration_id,
@@ -88,3 +90,15 @@ def register_tools(mcp, manager: core.SessionManager) -> None:
     def periodic_list(device: str) -> str:
         """列出当前会话的所有周期发送任务。返回结构化 JSON。"""
         return _json(core.periodic_list(manager, device))
+
+    @mcp.tool()
+    def set_frame_filter(
+        device: str, start_id: int, end_id: int, is_extended: bool = False
+    ) -> str:
+        """用一条 ID 范围替换接收滤波（会话须已 open_device）。空表不是全收。"""
+        return _json(core.set_frame_filter(manager, device, start_id, end_id, is_extended))
+
+    @mcp.tool()
+    def accept_all_frames(device: str) -> str:
+        """恢复接收全部帧。设置过滤波后若要重新全收，调用本工具而不是只清空滤波表。"""
+        return _json(core.accept_all_frames(manager, device))
