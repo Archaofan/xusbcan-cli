@@ -25,7 +25,8 @@ Cursor 始终生效规则：`.cursor/rules/privacy-git.mdc`（与本节一致）
 - 核心运行时依赖仅 `python-can`；MCP 走 `[mcp]` optional extra。
 - 配置里的 `interface` 使用 python-can 已声明的后端名即可打开，不必先登记型号。`vendor` / `model` 只用于通道映射和专有参数。
 - 公开文档和 skill 把「真机确认」和「仅登记」分开写。厂商驱动、环境变量、踩坑只写在对应型号下。新增一家需用户自备 SDK 的厂商时，README 免责声明追加一条。
-- 厂商差异只在 `src/xusbcan/adapters/`；core / cli / mcp 不出现厂商概念。
+- 厂商差异只在 `src/xusbcan/adapters/<厂商>/`。`registry` 会自动收集该目录的 `profiles.py`。python-can 已有后端只加这个文件；没有的才在该目录加 backend，并注册 `can.interface` 入口。core / cli / mcp 不出现厂商概念，滤波与周期发送只调用 python-can 的 `set_filters` / `send_periodic`。
+- Skill 的通用说明覆盖所有卡。某一型号的踩坑放 `skills/xusbcan/references/<型号>.md`，只有配置就是该型号时才读。
 - 输出：`Result`（`error.code` 枚举）+ `CanFrame`（`data` 小写十六进制，`channel` 不进 JSON）。
 - 无硬件测试：`pytest`（`virtual` + 假适配器）须全绿。
 

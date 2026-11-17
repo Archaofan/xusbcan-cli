@@ -1,8 +1,6 @@
 # Examples
 
-Replace `bus0` with the alias in `xusbcan.toml`. Match that file's channel and bitrate. Do not embed a real SDK directory.
-
-A device is either `interface = "<python-can backend>"` plus that backend's channel, or a `vendor` / `model` shortcut. The ZLG blocks below are only for USBCAN-2E-U. Do not set `ZLG_SDK_DIR` or `interface = "zlg"` for other backends.
+Replace `bus0` with the alias in `xusbcan.toml`. Match that file's `interface` or `vendor` / `model`, channel, and bitrate. Do not embed a real SDK directory.
 
 ```toml
 [[devices]]
@@ -12,29 +10,33 @@ channel = "can0"
 nominal = 500000
 ```
 
+`interface` is any backend python-can declares. A `vendor` / `model` shortcut is optional and is skipped when `interface` is set. Model-specific setup, such as a vendor SDK directory, belongs in that model's reference and is used only when the config names that model.
+
 ## CLI (one shot)
 
 ```bash
 xusbcan list
 xusbcan send bus0 --id 0x123 --data "01 02 03"
 xusbcan receive bus0 --timeout 1
+xusbcan receive bus0 --timeout 1 --from-id 0x100 --to-id 0x1FF
 xusbcan monitor bus0 --duration 2 --max-frames 50
+xusbcan periodic bus0 --name hb --id 0x123 --data "01" --period 0.1 --duration 5
 xusbcan status bus0
 ```
 
-Extended frame: add `--ext`. Each command prints one JSON object and exits.
+Extended frame: add `--ext`. Each command prints one JSON object and exits. `periodic` holds the device only for `--duration`.
 
 ## MCP tools
 
-Register `xusbcan-mcp` in the MCP client. Set `XUSBCAN_CONFIG` in that server's environment (paths belong in the user's local config, not in this skill). Add `ZLG_SDK_DIR` only when the configured model is USBCAN-2E-U.
+Register `xusbcan-mcp` in the MCP client. Set `XUSBCAN_CONFIG` in that server's environment. Paths belong in the user's local config, not in this skill. Add a vendor SDK variable only when that model's reference says so.
 
 Typical order for a session:
 
 1. `list_devices`
 2. `open_device` with the alias
 3. `send_frame` / `receive_frame` / `monitor`
-4. `periodic_start` with `period_s` in seconds, then `periodic_stop`. On USBCAN-2E-U this is hardware-timed: `send_frame` fails until every periodic task is stopped. Other registered backends do not use that lockout
-5. On USBCAN-2E-U: `set_frame_filter` to keep one ID range, then `accept_all_frames` before `close_device` if the bus should receive everything again. Do not send those filter rules to a PEAK or Vector device
+4. `periodic_start` with `period_s` in seconds, then `periodic_stop`
+5. `set_frame_filter` to keep one ID range, then `accept_all_frames` before `close_device` if the bus should receive everything again
 6. `close_device`
 
 HTTP MCP, when enabled in config, listens on `127.0.0.1` only. Do not point it at a public address.
@@ -43,14 +45,14 @@ HTTP MCP, when enabled in config, listens on `127.0.0.1` only. Do not point it a
 
 `monitor` is bounded (`duration_s` at most 30 seconds). It is not a streaming log.
 
-## python-can (resident, verified model)
+## python-can (resident)
 
-USBCAN-2E-U only. For a registered PEAK or Vector device, use `interface="pcan"` or `interface="vector"` and that model's channel. A direct `can.Bus` call does not consult the xusbcan model table; the CLI still will.
+`interface` and `channel` come from the config. This shape is not tied to one vendor.
 
 ```python
 import can
 
-bus = can.Bus(interface="zlg", channel=0, bitrate=500_000)
+bus = can.Bus(interface="socketcan", channel="can0", bitrate=500_000)
 bus.send(can.Message(arbitration_id=0x123, data=[0x01, 0x02], is_extended_id=False))
 msg = bus.recv(timeout=1.0)
 bus.shutdown()
@@ -72,7 +74,7 @@ def _stop(*_):
 
 signal.signal(signal.SIGINT, _stop)
 
-bus = can.Bus(interface="zlg", channel=0, bitrate=500_000)  # USBCAN-2E-U
+bus = can.Bus(interface="socketcan", channel="can0", bitrate=500_000)
 task = bus.send_periodic(
     can.Message(arbitration_id=0x123, data=[0x01], is_extended_id=False),
     period=0.1,

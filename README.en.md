@@ -123,7 +123,7 @@ xusbcan receive bus0 --timeout 1 --from-id 0x100 --to-id 0x1FF
 xusbcan periodic bus0 --name hb --id 0x123 --data "01" --period 0.1 --duration 5
 ```
 
-`periodic` transmits for `--duration` seconds in this process, then stops. A filter applies on every backend: hardware acceptance where that exists, otherwise python-can masks. Use MCP when the session must stay open across calls.
+`periodic` transmits for `--duration` seconds in this process, then stops. Filter commands are the same for every backend. Use MCP when the session must stay open across calls.
 
 After the MCP server is connected, the agent uses `send_frame`, `receive_frame`, `monitor`, `periodic_start`, and the other tools on the same alias.
 

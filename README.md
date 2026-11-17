@@ -125,7 +125,7 @@ xusbcan receive bus0 --timeout 1 --from-id 0x100 --to-id 0x1FF
 xusbcan periodic bus0 --name hb --id 0x123 --data "01" --period 0.1 --duration 5
 ```
 
-`periodic` 在本进程内发完指定时长后停止。滤波对所有已打开的后端生效：有硬件验收表时走硬件，否则走 python-can 掩码。要跨多次命令保持会话，用 MCP。
+`periodic` 在本进程内发完指定时长后停止。滤波命令对各后端相同。要跨多次命令保持会话，用 MCP。
 
 连接 MCP 后，Agent 用 `send_frame`、`receive_frame`、`monitor`、`periodic_start` 等工具操作同一别名。
 

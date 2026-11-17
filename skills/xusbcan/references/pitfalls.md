@@ -1,48 +1,27 @@
 # Pitfalls
 
-Public behavior only. Do not add machine paths, serial numbers, or customer frame maps.
+These notes apply to every adapter opened by xusbcan. Do not add machine paths, serial numbers, or customer frame maps.
 
-These notes are for the verified Zhou Ligong USBCAN-2E-U (`interface="zlg"`). Do not apply the filter, ACK-block, online-code, or listen-only behavior to PEAK PCAN-USB, Vector VN1630, or any other python-can backend. Those keep that backend's own semantics. Software periodic send on other backends does not lock out a normal send.
-
-## Receive goes empty after a filter change
-
-On the verified classic USB-CAN adapter, filters are a whitelist:
-
-- `filter_mode` selects standard frames (`0`) or extended frames (`1`). It is not a generic "range mode".
-- IDs are hex strings with a `0x` prefix.
-- A new rule does not apply on the device until it is acknowledged.
-- Clearing the table also needs that acknowledge. An empty table means **receive nothing**, not receive everything.
-- To accept traffic again, install an explicit full standard range and a full extended range, then acknowledge once.
-
-Use `set_frame_filter` on an open session to replace the table with one range, and `accept_all_frames` to receive everything again. Do not stop after a clear: an empty table receives nothing. On other backends the same two tools install and clear python-can masks instead of this hardware table.
-
-## Transmit blocks for seconds
-
-With no other node to ACK, a normal transmit can block inside the driver for about 3.5 seconds and then report zero frames sent. Do not retry in a tight loop. Prefer a bus that already has a peer when you need a quick pass/fail.
-
-## Hardware periodic send vs normal send
-
-`periodic_start` on USBCAN-2E-U uses hardware timed transmit. Until every such task is stopped, `send_frame` fails on purpose. Software periodic send on other backends does not have this lockout.
-
-## Close, then open
-
-Closing the device returns before the driver has fully released it. Opening again in the same process with no pause often yields an empty handle. Wait at least half a second, then retry.
-
-## "Online" is not the generic success code
-
-The online check uses its own codes: online is `2`, offline is `3`. Do not treat `1` (generic success of other calls) as "device online".
-
-## Do not automate these writes
-
-| Avoid | Why |
-|-------|-----|
-| Custom serial number | Can be stored across power cycles |
-| Persistent dynamic config / firmware paths | Same |
-| Non-standard custom baud encoding | Easy to leave the channel on an unexpected rate |
-| Listen-only init mode | On this adapter it can make the next open fail until a long cooldown |
-
-Read-only device info and a normal-mode open/send/receive loop are enough for almost every debug task.
+A model-specific file is not part of this page. Open it only when the config `vendor` / `model` (or `interface`) is exactly that card.
 
 ## CLI is not a resident session
 
-Each `xusbcan send` or `receive` is a fresh open and close. A `while` loop of CLI calls will flap the device and race the close delay above. Hold one `can.Bus` instead.
+Each `xusbcan send`, `receive`, or `monitor` opens and closes the device. A `while` loop of those commands flaps the hardware. `periodic` stays open only for its `--duration`, then stops and closes.
+
+Hold one process for a long job: MCP `open_device`, or one `can.Bus` / core session.
+
+## Timeout is not a failure
+
+`receive` and `receive_frame` with no traffic return `status=ok` and no frame when the timeout elapses. Branch on `status` and `error.code`. Do not treat that as a crash.
+
+## One filter range, then accept all
+
+`set_frame_filter` replaces reception with one ID range on every backend. `accept_all_frames`, or `set_filters(None)` on the bus, restores full reception. Do not leave a cleared filter in place and expect traffic.
+
+## Periodic send may block a normal send
+
+`periodic_start` uses `send_periodic`. On some backends a later `send_frame` fails until every periodic task is stopped. Stop the task, then send. Do not assume that lockout, or its absence, for a card you have not identified.
+
+## Do not reuse another card's setup
+
+Driver, environment variables, channel type, and `extra` keys belong to the backend named in the config. Copying one vendor's SDK variable or channel string onto another backend will not open the device.

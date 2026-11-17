@@ -26,9 +26,11 @@ from xusbcan.models import BitrateConfig, CanFrame, DeviceSpec, Result
 class _Dll:
     def __init__(self) -> None:
         self.paths: list[str] = []
+        self.values: list[bytes] = []
 
     def ZCAN_SetValue(self, handle, path, value):
         self.paths.append(path.decode() if isinstance(path, bytes) else path)
+        self.values.append(value if isinstance(value, bytes) else str(value).encode())
         return 1
 
 
@@ -76,6 +78,10 @@ def test_acceptance_replaces_table_and_accept_all_acks():
     bus.accept_all()
     assert "0/filter_ack" in bus._dll.paths
     assert bus._dll.paths.count("0/filter_start") == 2
+    bus._dll.paths.clear()
+    bus.set_filters([{"can_id": 0x100, "can_mask": 0x7FF, "extended": False}])
+    assert bus._dll.paths[-1] == "0/filter_ack"
+    assert b"0x00000100" in bus._dll.values
     with pytest.raises(can.CanOperationError):
         bus.set_acceptance(0, 0x800, False)
 
@@ -85,11 +91,8 @@ def test_filter_tools_need_capability_and_open_session():
         def __init__(self) -> None:
             self.calls: list[tuple] = []
 
-        def set_acceptance(self, start, end, is_extended):
-            self.calls.append(("set", start, end, is_extended))
-
-        def accept_all(self):
-            self.calls.append(("all",))
+        def set_filters(self, filters):
+            self.calls.append(("filters", filters))
 
         def shutdown(self):
             return None
@@ -110,8 +113,12 @@ def test_filter_tools_need_capability_and_open_session():
     open_session(mgr, "can0")
     r = set_frame_filter(mgr, "can0", 0x100, 0x1FF, True)
     assert r.status == "ok"
-    assert holder["bus"].calls[-1] == ("set", 0x100, 0x1FF, True)
+    programmed = holder["bus"].calls[-1]
+    assert programmed[0] == "filters"
+    assert programmed[1][0]["can_id"] == 0x100
+    assert programmed[1][0]["extended"] is True
     assert accept_all_frames(mgr, "can0").status == "ok"
+    assert holder["bus"].calls[-1] == ("filters", None)
     mgr.close_all()
 
 

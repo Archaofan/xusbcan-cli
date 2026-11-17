@@ -1,40 +1,46 @@
-"""单一适配链路：DeviceSpec → registry → can.Bus。
+"""打开设备：interface 直通 python-can，或按厂商目录里的型号快捷方式映射。
 
-zlg 是 python-can 的自定义 interface，经 entry point 注册，与官方 backend 地位平等。
-本模块模块级不 import adapters.zlg，保证 Linux 上可导入（virtual 后端测试可运行）。
+新增 python-can 已有后端不必改这里。需要通道映射或固定参数时，在
+``adapters/<vendor>/profiles.py`` 增加 ``PROFILES``。python-can 没有的卡，
+在该厂商目录里加 backend，并注册 ``can.interface`` 入口。
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from dataclasses import dataclass
+import importlib
+import pkgutil
 
 import can
 
+import xusbcan.adapters as adapters_pkg
+
 from ..models.device import DeviceSpec
 from ..models.result import ErrorCode, Result
+from .profile import ChannelOutOfRange, ModelCapabilityError, Profile
 
 
-@dataclass
-class Profile:
-    """(vendor, model) → backend 的映射。options 是 backend 专属选项，进 can.Bus kwargs。"""
+def _discover_profiles() -> dict[tuple[str, str], Profile]:
+    """收集 adapters/<厂商>/profiles.py。新增厂商目录即可，不必改本文件。"""
+    merged: dict[tuple[str, str], Profile] = {}
+    prefix = adapters_pkg.__name__ + "."
+    for info in pkgutil.iter_modules(adapters_pkg.__path__):
+        if not info.ispkg:
+            continue
+        try:
+            module = importlib.import_module(prefix + info.name + ".profiles")
+        except ModuleNotFoundError:
+            continue
+        part = getattr(module, "PROFILES", None)
+        if not part:
+            continue
+        overlap = set(merged) & set(part)
+        if overlap:
+            raise RuntimeError(f"重复的型号登记: {sorted(overlap)}")
+        merged.update(part)
+    return merged
 
-    interface: str  # python-can interface 名
-    channels: int = 1  # 通道数（能力查询 + 越界检查）
-    fd: bool = False  # 是否支持 CAN FD
-    channel_map: Callable[[int], int | str] | None = None  # 逻辑通道号 → 厂商通道地址
-    options: dict | None = None  # backend 专属选项（不混入厂商联合体）
 
-
-# 注意：周立功手册的 "CANalyst-II+" 走 zlgcan；python-can 官方 canalystii（创芯
-# CANalyst-II）是否覆盖它尚未证实，暂不把创芯卡列为「改配置即可」。
-PROFILES: dict[tuple[str, str], Profile] = {
-    ("zlg", "USBCAN-2E-U"): Profile(
-        "zlg", channels=2, fd=False, options={"device_type": 21, "device_index": 0}
-    ),
-    ("peak", "PCAN-USB"): Profile("pcan", channel_map=lambda n: f"PCAN_USBBUS{n + 1}"),
-    ("vector", "VN1630"): Profile("vector", channels=2, fd=True),
-}
+PROFILES = _discover_profiles()
 
 
 def resolve(spec: DeviceSpec) -> Profile:
@@ -85,11 +91,11 @@ def open_bus(spec: DeviceSpec) -> can.BusABC:
 
     profile = resolve(spec)
     if spec.bitrate is not None and spec.bitrate.data is not None and not profile.fd:
-        raise ValueError(f"{spec.vendor}/{spec.model} 不支持 CAN FD 数据段波特率")
+        raise ModelCapabilityError(f"{spec.vendor}/{spec.model} 不支持 CAN FD 数据段波特率")
     if not isinstance(spec.channel, int):
-        raise ValueError(f"该型号的通道必须是整数: {spec.channel!r}")
+        raise ChannelOutOfRange(f"该型号的通道必须是整数: {spec.channel!r}")
     if spec.channel < 0 or spec.channel >= profile.channels:
-        raise ValueError(f"通道号越界: {spec.channel}（该设备 {profile.channels} 路）")
+        raise ChannelOutOfRange(f"通道号越界: {spec.channel}（该设备 {profile.channels} 路）")
 
     channel: int | str = spec.channel
     if profile.channel_map is not None:
@@ -103,9 +109,10 @@ def open_device(spec: DeviceSpec) -> Result:
         bus = open_bus(spec)
     except KeyError as e:
         return Result.err(ErrorCode.CONFIG_ERROR, str(e))
-    except ValueError as e:
-        code = ErrorCode.CHANNEL_OUT_OF_RANGE if "通道" in str(e) else ErrorCode.CONFIG_ERROR
-        return Result.err(code, str(e))
+    except ChannelOutOfRange as e:
+        return Result.err(ErrorCode.CHANNEL_OUT_OF_RANGE, str(e))
+    except ModelCapabilityError as e:
+        return Result.err(ErrorCode.CAPABILITY_UNSUPPORTED, str(e))
     except can.CanError as e:
         return Result.err(ErrorCode.DEVICE_OPEN_FAILED, f"打开设备失败: {e}")
     except Exception as e:  # noqa: BLE001 —— 收拢未知异常，避免接口层两套失败

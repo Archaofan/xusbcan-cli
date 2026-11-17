@@ -15,7 +15,8 @@ from collections.abc import Iterable
 
 import can
 
-from ..adapters.registry import Profile, resolve
+from ..adapters.profile import Profile
+from ..adapters.registry import resolve
 from ..models.frame import CanFrame
 from ..models.result import ErrorCode, Result
 from . import monitor as monitor_mod
@@ -272,11 +273,7 @@ def periodic_list(manager: SessionManager, alias: str) -> Result:
 
 
 def apply_frame_filter(bus, start_id: int, end_id: int, is_extended: bool = False) -> str:
-    """替换接收范围。有硬件验收表的后端走硬件，其余走 python-can 掩码。返回所用方式。"""
-    hardware = getattr(bus, "set_acceptance", None)
-    if hardware is not None:
-        hardware(start_id, end_id, is_extended)
-        return "hardware"
+    """用 python-can 掩码替换接收范围。后端若实现 _apply_filters，可同时写入硬件。"""
     if not hasattr(bus, "set_filters"):
         raise can.CanError("当前设备不支持滤波")
     bus.set_filters(id_masks(start_id, end_id, is_extended))
@@ -284,16 +281,11 @@ def apply_frame_filter(bus, start_id: int, end_id: int, is_extended: bool = Fals
 
 
 def clear_frame_filter(bus) -> str:
-    """恢复全收。硬件后端必须显式装回全范围，不能只留空表。"""
-    hardware = getattr(bus, "accept_all", None)
-    if hardware is not None:
-        hardware()
-    if hasattr(bus, "set_filters"):
-        bus.set_filters(None)
-        return "hardware" if hardware is not None else "mask"
-    if hardware is not None:
-        return "hardware"
-    raise can.CanError("当前设备不支持滤波")
+    """恢复全收。set_filters(None) 表示全部匹配；硬件后端在 _apply_filters 里装回全范围。"""
+    if not hasattr(bus, "set_filters"):
+        raise can.CanError("当前设备不支持滤波")
+    bus.set_filters(None)
+    return "mask"
 
 
 def set_frame_filter(

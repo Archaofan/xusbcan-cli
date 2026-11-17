@@ -39,6 +39,18 @@ from .dll import (
 )
 
 
+def _mask_span(can_id: int, can_mask: int, limit: int) -> tuple[int, int] | None:
+    """低位连续通配的掩码还原成闭区间。其它形状留给软件滤波。"""
+    can_id &= limit
+    can_mask &= limit
+    wild = (~can_mask) & limit
+    if wild & (wild + 1):
+        return None
+    if can_id & wild:
+        return None
+    return can_id, can_id | wild
+
+
 class ZlgCapabilityUnsupportedError(ZlgError):
     """设备不支持该能力（对应 CAPABILITY_UNSUPPORTED），如 2E 卡发 CAN FD。"""
 
@@ -281,34 +293,44 @@ class ZlgBus(BusABC):
         return task
 
     # ---- 硬件滤波（运行时，非掉电保存）----
+    def _apply_filters(self, filters) -> None:
+        """python-can set_filters 的硬件实现。掩码能还原成连续范围时写入验收表。"""
+        if not filters:
+            self._program_ranges([(0, 0x7FF, False), (0, 0x1FFFFFFF, True)])
+            return
+        ranges: list[tuple[int, int, bool]] = []
+        for item in filters:
+            extended = bool(item.get("extended", False))
+            limit = 0x1FFFFFFF if extended else 0x7FF
+            span = _mask_span(int(item["can_id"]), int(item["can_mask"]), limit)
+            if span is None:
+                return
+            ranges.append((span[0], span[1], extended))
+        self._program_ranges(ranges)
+
     def set_acceptance(self, start: int, end: int, is_extended: bool) -> None:
-        """用一条范围替换本通道滤波表。空表不会被留下。"""
+        """用一条范围替换本通道滤波表。供本后端测试；上层走 set_filters。"""
         start_i, end_i = int(start), int(end)
         limit = 0x1FFFFFFF if is_extended else 0x7FF
         if start_i < 0 or end_i < start_i or end_i > limit:
             raise can.CanOperationError(
                 f"滤波范围非法: 0x{start_i:X}..0x{end_i:X} extended={is_extended}"
             )
-        mode = b"1" if is_extended else b"0"
-        ch = self._channel
-        with self._entry.lock:
-            self._set_prop(f"{ch}/filter_clear", b"0")
-            self._set_prop(f"{ch}/filter_mode", mode)
-            self._set_prop(f"{ch}/filter_start", f"0x{start_i:08X}".encode("ascii"))
-            self._set_prop(f"{ch}/filter_end", f"0x{end_i:08X}".encode("ascii"))
-            self._set_prop(f"{ch}/filter_ack", b"0")
+        self._program_ranges([(start_i, end_i, is_extended)])
 
     def accept_all(self) -> None:
-        """恢复全收：标准帧全范围 + 扩展帧全范围，再确认一次。"""
+        """恢复全收。上层等价于 set_filters(None)。"""
+        self._program_ranges([(0, 0x7FF, False), (0, 0x1FFFFFFF, True)])
+
+    def _program_ranges(self, ranges: list[tuple[int, int, bool]]) -> None:
         ch = self._channel
         with self._entry.lock:
             self._set_prop(f"{ch}/filter_clear", b"0")
-            self._set_prop(f"{ch}/filter_mode", b"0")
-            self._set_prop(f"{ch}/filter_start", b"0x00000000")
-            self._set_prop(f"{ch}/filter_end", b"0x000007FF")
-            self._set_prop(f"{ch}/filter_mode", b"1")
-            self._set_prop(f"{ch}/filter_start", b"0x00000000")
-            self._set_prop(f"{ch}/filter_end", b"0x1FFFFFFF")
+            for start_i, end_i, is_extended in ranges:
+                mode = b"1" if is_extended else b"0"
+                self._set_prop(f"{ch}/filter_mode", mode)
+                self._set_prop(f"{ch}/filter_start", f"0x{start_i:08X}".encode("ascii"))
+                self._set_prop(f"{ch}/filter_end", f"0x{end_i:08X}".encode("ascii"))
             self._set_prop(f"{ch}/filter_ack", b"0")
 
     # ---- 接收 ----
