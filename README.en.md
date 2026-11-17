@@ -164,7 +164,7 @@ Contributions for other models (Vector, PEAK, CANalyst, Kvaser, and others) are 
 
 ## License
 
-This project is licensed under the [MIT License](LICENSE). See [`third_party/NOTICES`](third_party/NOTICES) for third-party component licenses.
+This project is licensed under the [MIT License](LICENSE). See [`third_party/NOTICES`](third_party/NOTICES) for third-party component licenses and [`third_party/ABI_PROVENANCE.md`](third_party/ABI_PROVENANCE.md) for how the ZLG public ABI binding was derived.
 
 ## Safe use
 

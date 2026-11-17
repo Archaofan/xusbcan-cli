@@ -139,6 +139,7 @@ def test_periodic_parallel_with_request_response():
                 "id": 0x100,
                 "data": "01",
                 "period": 0.05,
+                "duration_s": 2.0,
             },
             {"action": "sleep", "seconds": 0.12},
             {"action": "wait_id", "device": "b", "id": 0x100, "timeout": 0.5},
@@ -148,6 +149,86 @@ def test_periodic_parallel_with_request_response():
         ],
     )
     assert result.status == "ok"
+    assert result.data["cleaned_periodics"] == []
+    mgr.close_all()
+
+
+def test_scenario_periodic_requires_duration_and_cleans_on_fail():
+    from xusbcan.core import periodic_list
+
+    mgr = _mgr()
+    open_session(mgr, "a")
+    open_session(mgr, "b")
+    missing = run_scenario(
+        mgr,
+        [
+            {
+                "action": "periodic_start",
+                "device": "a",
+                "name": "hb",
+                "id": 0x100,
+                "data": "01",
+                "period": 0.05,
+            },
+        ],
+    )
+    assert missing.status == "error"
+    assert "duration" in (missing.data["steps"][0].get("error") or "")
+
+    orphan = run_scenario(
+        mgr,
+        [
+            {
+                "action": "periodic_start",
+                "device": "a",
+                "name": "hb",
+                "id": 0x100,
+                "data": "01",
+                "period": 0.05,
+                "duration_s": 30.0,
+            },
+            {"action": "wait_id", "device": "b", "id": 0x7EE, "timeout": 0.05},
+        ],
+    )
+    assert orphan.status == "error"
+    assert orphan.data["cleaned_periodics"]
+    assert orphan.data["cleaned_periodics"][0]["stopped"] is True
+    assert periodic_list(mgr, "a").data["tasks"] == []
+    mgr.close_all()
+
+
+def test_scenario_burst_and_repeat_budget():
+    from xusbcan.scenario.runner import MAX_BURST_COUNT, MAX_REPEAT_COUNT
+
+    mgr = _mgr()
+    open_session(mgr, "a")
+    burst = run_scenario(
+        mgr,
+        [
+            {
+                "action": "burst_send",
+                "device": "a",
+                "id": 0x10,
+                "data": "01",
+                "count": MAX_BURST_COUNT + 1,
+            },
+        ],
+    )
+    assert burst.status == "error"
+    assert "burst_send.count" in (burst.data["steps"][0].get("error") or "")
+
+    repeat = run_scenario(
+        mgr,
+        [
+            {
+                "action": "repeat",
+                "count": MAX_REPEAT_COUNT + 1,
+                "steps": [{"action": "sleep", "seconds": 0}],
+            },
+        ],
+    )
+    assert repeat.status == "error"
+    assert "repeat.count" in (repeat.data["steps"][0].get("error") or "")
     mgr.close_all()
 
 

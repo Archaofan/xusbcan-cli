@@ -166,7 +166,7 @@ python-can 没有的卡才需要新后端。新后端若要用户自备 SDK，�
 
 ## License
 
-本项目采用 [MIT License](LICENSE)。第三方组件的许可条款见 [`third_party/NOTICES`](third_party/NOTICES)。
+本项目采用 [MIT License](LICENSE)。第三方组件的许可条款见 [`third_party/NOTICES`](third_party/NOTICES)。ZLG 公开 ABI 绑定的来源说明见 [`third_party/ABI_PROVENANCE.md`](third_party/ABI_PROVENANCE.md)。
 
 ## 安全使用
 

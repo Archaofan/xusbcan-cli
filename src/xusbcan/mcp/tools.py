@@ -115,7 +115,8 @@ def register_tools(mcp, manager: core.SessionManager) -> None:
     def run_scenario(steps_json: str) -> str:
         """执行毫秒级报文剧本。steps_json 为 steps 数组或含 steps 的对象的 JSON 字符串。
         支持 open/send/wait_id/wait_n/drain/filter/accept_all/sleep/repeat/try/
-        burst_send/periodic_start/periodic_stop/close。返回逐步耗时 JSON。
+        burst_send/periodic_start/periodic_stop/close。periodic_start 须带 duration_s
+        （上限 300）；结束时清理本剧本仍登记的周期任务。返回逐步耗时 JSON。
         """
         try:
             payload = json.loads(steps_json)

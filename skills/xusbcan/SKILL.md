@@ -5,7 +5,7 @@ license: MIT
 compatibility: Python 3.11+. Drivers depend on the backend named in the config. Read a model reference only when that model is the one configured.
 metadata:
   author: xusbcan-cli
-  version: "1.5"
+  version: "1.6"
 ---
 
 # xusbcan
@@ -47,7 +47,7 @@ When not to use: changing product firmware, or editing ignored local design note
 | Agent tools, session, periodic, scenario | MCP: `open_device`, `send_frame`, `receive_frame`, `monitor`, `periodic_start` / `periodic_stop` / `periodic_list`, `set_frame_filter`, `accept_all_frames`, `run_scenario`, `close_device` |
 | Hours-long send/receive with no agent | One Python process holding `can.Bus` or a core session |
 
-`receive` and `monitor` take `--from-id` and `--to-id` for one range. `set_frame_filter` does the same on an open session. `accept_all_frames` restores full reception. CLI `periodic` runs until `--duration` elapses. MCP `periodic_start` requires `duration_s` (max 300 seconds) and stops when that elapses; `periodic_stop` can end it earlier. For longer bench runs, use a local resident process instead of MCP.
+`receive` and `monitor` take `--from-id` and `--to-id` for one range. `set_frame_filter` does the same on an open session. `accept_all_frames` restores full reception. CLI `periodic` runs until `--duration` elapses. MCP and scenario `periodic_start` require `duration_s` (max 300 seconds) and auto-stop; scenario also cleans owned periodics when the run ends. For longer bench runs, use a local resident process instead of MCP.
 
 CLI and one-shot MCP calls open and close the device each time. Do not loop them for a long job.
 
