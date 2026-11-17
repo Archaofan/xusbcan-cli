@@ -23,11 +23,12 @@ xusbcan monitor bus0 --duration 2 --max-frames 50
 xusbcan periodic bus0 --name hb --id 0x123 --data "01" --period 0.1 --duration 5
 xusbcan status bus0
 xusbcan scenario --file steps.json
+xusbcan scenario --dir scenarios/
 ```
 
 Extended frame: add `--ext`. Each command prints one JSON object and exits. `periodic` holds the device only for `--duration`.
 
-`scenario` / MCP `run_scenario` run millisecond steps in one process:
+`scenario` / MCP `run_scenario` run millisecond steps in one process. `--dir` runs every `*.json` in that folder in name order and returns one aggregate Result:
 `open` `send` `wait_id` `wait_n` `drain` `burst_send` `filter` `accept_all` `sleep` `repeat` `try` `set` `periodic_*` `close`.
 File-level `vars` and `${name}` placeholders are expanded before each step.
 `wait_id` / `wait_n` may set `"store": {"var": "id|data|dlc|ext"}` to capture fields into vars.

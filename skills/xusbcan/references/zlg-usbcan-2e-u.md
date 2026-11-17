@@ -1,6 +1,6 @@
 # Zhou Ligong USBCAN-2E-U
 
-Read this file only when the device is `vendor = "zlg"` and `model = "USBCAN-2E-U"`, or `interface = "zlg"`. Do not apply it to PEAK, Vector, socketcan, or any other python-can backend.
+Read this file only when the device is `vendor = "zlg"` and `model = "USBCAN-2E-U"`. Do not apply it to USBCAN-II, PEAK, Vector, socketcan, or any other python-can backend.
 
 ## Setup
 

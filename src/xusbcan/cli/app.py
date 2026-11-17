@@ -11,6 +11,7 @@ import argparse
 import json
 import sys
 import time
+from pathlib import Path
 
 from ..config.loader import load_config
 from ..core import (
@@ -61,8 +62,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("list", help="列出设备（只读配置与会话表）")
 
-    p = sub.add_parser("scenario", help="执行毫秒级报文剧本（JSON 步骤文件）")
-    p.add_argument("--file", required=True, help="剧本 JSON 路径（含 steps 数组）")
+    p = sub.add_parser("scenario", help="执行毫秒级报文剧本（JSON 步骤文件或目录）")
+    src = p.add_mutually_exclusive_group(required=True)
+    src.add_argument("--file", help="单个剧本 JSON 路径（含 steps 数组）")
+    src.add_argument("--dir", help="目录内按文件名排序批跑全部 *.json")
 
     p = sub.add_parser("send", help="发送一帧 CAN 报文")
     p.add_argument("alias", help="设备逻辑别名")
@@ -138,7 +141,9 @@ def dispatch(args: argparse.Namespace) -> Result:
     if cmd == "status":
         return status(mgr, args.alias)
     if cmd == "scenario":
-        return _scenario_for(mgr, args.file)
+        if args.file:
+            return _scenario_for(mgr, args.file)
+        return _scenario_dir_for(mgr, args.dir)
     return Result.err(ErrorCode.INVALID_ARGUMENT, f"未知命令: {cmd}")
 
 
@@ -153,6 +158,41 @@ def _scenario_for(mgr: SessionManager, path: str) -> Result:
         return run_scenario(mgr, steps, variables=variables)
     finally:
         mgr.close_all()
+
+
+def _scenario_dir_for(mgr: SessionManager, dir_path: str) -> Result:
+    root = Path(dir_path)
+    if not root.is_dir():
+        return Result.err(ErrorCode.CONFIG_ERROR, f"剧本目录不存在: {dir_path}")
+    files = sorted(root.glob("*.json"))
+    if not files:
+        return Result.err(ErrorCode.INVALID_ARGUMENT, f"目录内无 *.json: {dir_path}")
+    reports: list[dict] = []
+    all_ok = True
+    try:
+        for path in files:
+            try:
+                steps, variables = load_scenario(str(path))
+                one = run_scenario(mgr, steps, variables=variables)
+            except OSError as e:
+                one = Result.err(ErrorCode.CONFIG_ERROR, f"无法读取剧本: {e}")
+            except (json.JSONDecodeError, ValueError) as e:
+                one = Result.err(ErrorCode.INVALID_ARGUMENT, f"剧本无效: {e}")
+            reports.append({"file": path.name, "result": one.to_dict()})
+            if one.status != "ok":
+                all_ok = False
+            mgr.close_all()
+            time.sleep(0.05)
+    finally:
+        mgr.close_all()
+    data = {"dir": str(root), "count": len(reports), "ok": all_ok, "runs": reports}
+    if all_ok:
+        return Result.ok(data)
+    return Result.err(
+        ErrorCode.INTERNAL_ERROR,
+        "目录批跑存在失败剧本",
+        data=data,
+    )
 
 
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+from pathlib import Path
 
 import can
 
@@ -122,4 +123,44 @@ nominal = 500000
     finally:
         os.unlink(cfg.name)
         os.unlink(script.name)
+    assert code == 0
+
+
+def test_cli_scenario_dir_on_virtual(tmp_path: Path):
+    cfg = tmp_path / "cfg.toml"
+    cfg.write_text(
+        """
+[[devices]]
+name = "a"
+interface = "virtual"
+channel = "cli-scenario-dir"
+nominal = 500000
+
+[[devices]]
+name = "b"
+interface = "virtual"
+channel = "cli-scenario-dir"
+nominal = 500000
+""",
+        encoding="utf-8",
+    )
+    scen_dir = tmp_path / "scenarios"
+    scen_dir.mkdir()
+    for name, arb in (("01_ping.json", "0x201"), ("02_pong.json", "0x202")):
+        (scen_dir / name).write_text(
+            json.dumps(
+                {
+                    "steps": [
+                        {"action": "open", "device": "a"},
+                        {"action": "open", "device": "b"},
+                        {"action": "send", "device": "a", "id": arb, "data": "aa"},
+                        {"action": "wait_id", "device": "b", "id": arb, "timeout": 0.5},
+                        {"action": "close", "device": "a"},
+                        {"action": "close", "device": "b"},
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+    code = main(["--config", str(cfg), "scenario", "--dir", str(scen_dir)])
     assert code == 0

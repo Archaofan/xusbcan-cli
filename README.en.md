@@ -1,6 +1,6 @@
 # xusbcan-cli
 
-An AI-agent-oriented CAN bus tool. It is meant to cover many adapters. The model verified on hardware in this first stage is the ZLG USBCAN-2E-U.
+An AI-agent-oriented CAN bus tool. It is meant to cover many adapters. The models verified on hardware in this first stage are the ZLG USBCAN-2E-U and USBCAN-II.
 
 [中文](README.md) | English
 
@@ -38,7 +38,7 @@ pip install -e ".[mcp]"   # + MCP server support
 
 ## Quick Start
 
-Identify the vendor and model first, then follow that model's driver and config. The ZLG steps below apply only to a confirmed USBCAN-2E-U.
+Identify the vendor and model first, then follow that model's driver and config. The ZLG steps below apply only to a confirmed USBCAN-2E-U / USBCAN-II, not to other vendors.
 
 ### 1. Shared prerequisites and config
 
@@ -66,9 +66,9 @@ The MCP default transport is stdio. `http` binds `127.0.0.1` only.
 xusbcan-mcp
 ```
 
-### 2. Model-specific: ZLG USBCAN-2E-U (verified on hardware)
+### 2. Model-specific: ZLG USBCAN-2E-U / USBCAN-II (verified on hardware)
 
-This model also needs:
+Both models also need:
 
 - The ZLG USB driver
 - The ZLG secondary-development SDK (`zlgcan.dll` and `kerneldlls/` beside it)
@@ -90,12 +90,12 @@ set ZLG_SDK_DIR=D:\path\to\extracted-sdk-dir
 [[devices]]
 name = "bus0"
 vendor = "zlg"
-model = "USBCAN-2E-U"
-channel = 1
+model = "USBCAN-2E-U"   # or "USBCAN-II"
+channel = 1             # II often uses 0; match your wiring
 nominal = 250000
 ```
 
-Only this model needs `ZLG_SDK_DIR` in the MCP client config:
+CLI and MCP commands are the same; filter and periodic paths differ by model (see the Agent Skill per-model files). Both ZLG models need `ZLG_SDK_DIR` in the MCP client config:
 
 ```json
 {
@@ -121,9 +121,11 @@ xusbcan monitor bus0 --duration 5
 xusbcan status bus0
 xusbcan receive bus0 --timeout 1 --from-id 0x100 --to-id 0x1FF
 xusbcan periodic bus0 --name hb --id 0x123 --data "01" --period 0.1 --duration 5
+xusbcan scenario --file steps.json
+xusbcan scenario --dir scenarios/
 ```
 
-`periodic` transmits for `--duration` seconds in this process, then stops. Filter commands are the same for every backend. Use MCP when the session must stay open across calls.
+`periodic` transmits for `--duration` seconds in this process, then stops. `scenario` runs millisecond send→wait→send steps in one process; `--dir` runs every `*.json` in that folder in name order. Filter commands are the same for every backend. Use MCP when the session must stay open across calls.
 
 After the MCP server is connected, the agent uses `send_frame`, `receive_frame`, `monitor`, `periodic_start`, and the other tools on the same alias.
 
@@ -142,6 +144,7 @@ Run that in the project to install locally, or add `-g` for a user-wide install.
 | Status | Vendor / model | Notes |
 |--------|----------------|-------|
 | Verified on hardware | ZLG USBCAN-2E-U | Backend in this repo. Needs `ZLG_SDK_DIR` plus the vendor driver and SDK |
+| Verified on hardware | ZLG USBCAN-II | Same `zlg` backend, dispatched by model. Needs `ZLG_SDK_DIR` plus the vendor driver and SDK |
 | Registered, not verified here | PEAK PCAN-USB | Opens python-can's `pcan`. Needs the PEAK driver, not `ZLG_SDK_DIR` |
 | Registered, not verified here | Vector VN1630 | Opens python-can's `vector`, channels `0` and `1`. Needs the Vector driver. Set `data` for CAN FD |
 
@@ -169,4 +172,4 @@ This project is an independent third-party tool. It has no affiliation, sponsors
 
 When a newly supported vendor requires the user to supply an SDK or proprietary driver, add a bullet here. One vendor's notice does not cover the others.
 
-- **Guangzhou ZHIYUAN Electronics Co., Ltd. (ZLG)**: the model this project calls through the public secondary-development API is the USBCAN-2E-U. "ZLG" and "zlgcan" are trademarks of their owner. This project does not ship the vendor driver or `zlgcan.dll`.
+- **Guangzhou ZHIYUAN Electronics Co., Ltd. (ZLG)**: the models this project calls through the public secondary-development API are the USBCAN-2E-U and USBCAN-II. "ZLG" and "zlgcan" are trademarks of their owner. This project does not ship the vendor driver or `zlgcan.dll`.

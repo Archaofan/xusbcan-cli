@@ -1,6 +1,6 @@
 # xusbcan-cli
 
-面向 AI Agent 的 CAN 总线调试工具。目标是适配多种 CAN 卡；当前阶段真机确认的型号是周立功 USBCAN-2E-U。
+面向 AI Agent 的 CAN 总线调试工具。目标是适配多种 CAN 卡；当前阶段真机确认的型号是周立功 USBCAN-2E-U 与 USBCAN-II。
 
 中文 | [English](README.en.md)
 
@@ -38,7 +38,7 @@ pip install -e ".[mcp]"   # 追加 MCP 服务器支持
 
 ## 快速开始
 
-先看清手上的卡是哪一家、哪一型号，再按该型号准备驱动和配置。下面的周立功步骤只适用于已确认的 USBCAN-2E-U，不能套到其它卡上。
+先看清手上的卡是哪一家、哪一型号，再按该型号准备驱动和配置。下面的周立功步骤只适用于已确认的 USBCAN-2E-U / USBCAN-II，不能套到其它厂商的卡上。
 
 ### 1. 通用前提与通用配置
 
@@ -68,9 +68,9 @@ MCP 默认走 stdio。配置里把传输设为 `http` 时，服务只绑定 `127
 xusbcan-mcp
 ```
 
-### 2. 型号专属：周立功 USBCAN-2E-U（当前真机已确认）
+### 2. 型号专属：周立功 USBCAN-2E-U / USBCAN-II（当前真机已确认）
 
-这一型号还需要：
+这两种型号还需要：
 
 - 周立功 USB 设备驱动（让系统识别设备）
 - 周立功二次开发 SDK（提供 `zlgcan.dll` 与同目录的 `kerneldlls/`）
@@ -92,12 +92,12 @@ set ZLG_SDK_DIR=D:\path\to\解压后的SDK目录
 [[devices]]
 name = "bus0"
 vendor = "zlg"
-model = "USBCAN-2E-U"
-channel = 1
+model = "USBCAN-2E-U"   # 或 "USBCAN-II"
+channel = 1             # II 常用 0；按实际接线改
 nominal = 250000
 ```
 
-MCP 客户端注册时，仅此型号需要带上 `ZLG_SDK_DIR`：
+同一套 CLI / MCP 命令；滤波与周期发送在两种卡上的底层路径不同，Agent Skill 里按型号分文件说明。MCP 客户端注册时，这两种周立功卡都需要带上 `ZLG_SDK_DIR`：
 
 ```json
 {
@@ -124,9 +124,10 @@ xusbcan status bus0
 xusbcan receive bus0 --timeout 1 --from-id 0x100 --to-id 0x1FF
 xusbcan periodic bus0 --name hb --id 0x123 --data "01" --period 0.1 --duration 5
 xusbcan scenario --file steps.json
+xusbcan scenario --dir scenarios/
 ```
 
-`periodic` 在本进程内发完指定时长后停止。`scenario` 按 JSON 步骤做发→等→再发等编排（同进程会话）。滤波命令对各后端相同。要跨多次命令保持会话，也可用 MCP。
+`periodic` 在本进程内发完指定时长后停止。`scenario` 按 JSON 步骤做发→等→再发等编排（同进程会话）；`--dir` 按文件名排序批跑目录内全部 `*.json`。滤波命令对各后端相同。要跨多次命令保持会话，也可用 MCP。
 
 连接 MCP 后，Agent 用 `send_frame`、`receive_frame`、`monitor`、`periodic_start` 等工具操作同一别名。
 
@@ -145,6 +146,7 @@ npx skills add Archaofan/xusbcan-cli --skill xusbcan
 | 状态 | 厂商 / 型号 | 说明 |
 |------|-------------|------|
 | 真机已确认 | 周立功 USBCAN-2E-U | 本仓库提供该型号的后端。需要 `ZLG_SDK_DIR` 与周立功驱动、SDK |
+| 真机已确认 | 周立功 USBCAN-II | 同一 `zlg` 后端按型号分发。同样需要 `ZLG_SDK_DIR` 与周立功驱动、SDK |
 | 已登记，本仓库未做真机确认 | PEAK PCAN-USB | 打开时交给 python-can 的 `pcan`。需要 PEAK 自己的驱动，不要设置 `ZLG_SDK_DIR` |
 | 已登记，本仓库未做真机确认 | Vector VN1630 | 打开时交给 python-can 的 `vector`，通道 `0` 和 `1`。需要 Vector 自己的驱动。CAN FD 写 `data` |
 
@@ -172,4 +174,4 @@ python-can 没有的卡才需要新后端。新后端若要用户自备 SDK，�
 
 每支持一家需要使用者自备 SDK 或专有驱动的厂商，在此追加一条。不要把某一家的声明当成覆盖所有厂商。
 
-- **广州致远电子股份有限公司（周立功 / ZLG）**：当前直接对接其公开二次开发接口的型号是 USBCAN-2E-U。"周立功"、"ZLG"、"zlgcan" 等名称均为其商标。本项目不随附其驱动或 `zlgcan.dll`。
+- **广州致远电子股份有限公司（周立功 / ZLG）**：当前直接对接其公开二次开发接口的型号是 USBCAN-2E-U 与 USBCAN-II。"周立功"、"ZLG"、"zlgcan" 等名称均为其商标。本项目不随附其驱动或 `zlgcan.dll`。
