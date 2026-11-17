@@ -19,7 +19,7 @@ from xusbcan.core import (
     send,
     set_frame_filter,
 )
-from xusbcan.mcp.server import resolve_mcp_transport
+from xusbcan.mcp.transport import resolve_mcp_transport
 from xusbcan.models import BitrateConfig, CanFrame, DeviceSpec, Result
 
 
