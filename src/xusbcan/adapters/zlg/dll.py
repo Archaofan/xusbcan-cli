@@ -1,8 +1,9 @@
 """zlgcan.dll 的 ctypes 封装 + 惰性加载。
 
-结构体与函数签名**严格照抄** scripts/zlg_probe.py（真机已验证）：
-  can_frame=16、ZCAN_Transmit_Data=20、ZCAN_Receive_Data=24、
-  ZCAN_CHANNEL_INIT_CONFIG=32 字节；WinDLL（__stdcall）加载。
+按公开二次开发 ABI 自研的 ctypes 绑定（字段布局与常见 ``can_frame`` /
+通道初始化结构一致；本机探针曾核对：can_frame=16、ZCAN_Transmit_Data=20、
+ZCAN_Receive_Data=24、ZCAN_CHANNEL_INIT_CONFIG=32 字节）。以 WinDLL
+（__stdcall）加载用户自备的 DLL；**不**包含厂商 SDK 头文件或二进制原文。
 
 模块级**不**加载 DLL：只有真正打开 zlg 设备时才调用 ``get_dll()``，保证
 ``import xusbcan.adapters.zlg.backend`` 在 Linux（无 DLL）上不报错。
@@ -57,7 +58,7 @@ class ZlgDllNotFoundError(ZlgError):
     code: ErrorCode = ErrorCode.DLL_NOT_FOUND
 
 
-# ---- 结构体（与 zlgcan.h 自然对齐一致，照抄 zlg_probe.py）----
+# ---- 结构体（公开 ABI 布局；自然对齐）----
 
 
 class can_frame(ctypes.Structure):

@@ -1,10 +1,42 @@
 # Third-Party Notices
 
-本项目（xusbcan-cli）使用或引用了以下第三方组件。这些组件的版权归其各自所有者所有。
+本文件说明 **xusbcan-cli 仓库自身**、**运行时依赖**，以及 **用户自行获取的厂商 SDK** 之间的许可边界。
+
+- 本仓库的自有代码以根目录 [`LICENSE`](../LICENSE)（MIT）为准。
+- **MIT 许可只覆盖本项目有权再许可的内容**，不会改变第三方依赖或用户自备 SDK 的许可义务。
+- 下列「ZLG SDK」一节是对用户从官方渠道取得的 SDK 包内许可文本的**参考摘录**；**本仓库不包含** `zlgcan.dll`、`kerneldlls/`、厂商驱动或 SDK 头文件原文。
 
 ---
 
-## zlgcan SDK
+## 1. 本项目自有代码
+
+- 名称：xusbcan-cli
+- 许可：MIT License（见仓库根目录 `LICENSE`）
+- 版权：Copyright (c) 2026 chaofan
+
+---
+
+## 2. 运行时依赖（通过 PyPI 安装，不随本仓 vendoring 源码）
+
+安装本工具时，包管理器会另行获取下列依赖。其版权与许可归各自权利人；完整文本以其上游发行物为准。
+
+| 组件 | 用途 | 许可（以包元数据为准） |
+|------|------|------------------------|
+| python-can | CAN 总线抽象与后端生态 | LGPL-3.0 |
+| mcp（可选 extra `[mcp]`） | MCP 服务器 | MIT |
+
+本项目以普通 Python 依赖方式使用上述库，**不**将其源码复制进本仓库。分发或修改这些依赖时，须遵守其各自许可证（尤其是 LGPL-3.0 对 `python-can` 的要求）。
+
+---
+
+## 3. 用户自备：zlgcan SDK（许可参考，本仓不含 SDK 文件）
+
+本节适用于使用者从广州致远电子官方渠道自行获取并安装的 zlgcan SDK（例如 `zlgcan.dll` 与同目录 `kerneldlls/`）。  
+本项目仅通过环境变量 `ZLG_SDK_DIR` **定位**该目录；**不随本项目源码、PyPI 包或 Git 仓库分发**上述文件。
+
+以下中英文条款摘自官方 SDK 包内的 `zlgcan License.txt`，便于使用者知悉其再分发与名称使用条件。若与官方原文冲突，**以官方 SDK 包内文本为准**。
+
+### 中文
 
 zlgcan 中包含的所有文件遵循以下许可证：
 
@@ -21,7 +53,7 @@ zlgcan 中包含的所有文件遵循以下许可证：
 后果性或惩罚性损害赔偿承担责任（包括但不限于替代品采购、使用损失、数据丢失或业务中断），
 无论其责任形式（合同、侵权或其他）如何。
 
------------------------------------------------------------------------------------------------------------------------
+### English
 
 All files contained in zlgcan are guided by the following license:
 
@@ -42,7 +74,7 @@ modification, are permitted provided that the following conditions are met:
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-ARE DISCLAIMED. IN NO EVENT SHALL COPYRIGHT HOLDERS AND CONTRIBUTORS BE
+ARE DISCLAIMED. IN NO EVENT SHALL COPYRIGHT HOLDERS OR CONTRIBUTORS BE
 LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
 CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
 SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
@@ -50,8 +82,3 @@ INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
 CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
 ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 POSSIBILITY OF SUCH DAMAGE.
-
----
-
-注意：zlgcan SDK 的二进制文件（zlgcan.dll 及 kerneldlls/）**不随本项目分发**，
-由用户从广州致远电子官方渠道获取。本项目仅通过环境变量 ZLG_SDK_DIR 定位该 SDK。

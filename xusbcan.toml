@@ -6,14 +6,14 @@ backend = "stdio"          # MCP 传输：stdio | http（http 只绑 127.0.0.1�
 log_level = "INFO"
 
 [[devices]]
-name = "ecu"               # 逻辑别名，Agent 通过它引用设备
+name = "bus0"              # 逻辑别名，Agent 通过它引用设备
 vendor = "zlg"
 model = "USBCAN-2E-U"
 channel = 1                # 物理通道 1（第 2 个通道）
-nominal = 250000           # ECU 波特率 250k
+nominal = 250000           # 标称波特率 250k
 
 [[devices]]
-name = "usbcan2"           # USBCAN-II
+name = "bus1"              # USBCAN-II 示例别名
 vendor = "zlg"
 model = "USBCAN-II"
 channel = 0

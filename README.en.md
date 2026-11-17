@@ -10,7 +10,7 @@ Runs as a backend service with both a standard **CLI** and an **MCP (Model Conte
 
 Agents should drive a CAN bus like any other tool: structured output, stable contracts, programmatic invocation.
 
-xusbcan-cli aims to be a bridge between AI and automotive / industrial CAN buses. The first verified model is a starting point, not the scope of the project.
+The **goal** is for xusbcan-cli to become a reliable bridge between AI and automotive / industrial CAN on the bench. This is still an early release: ship the verified models first, then grow by model. It does not claim full multi-vendor coverage or industry-standard status yet.
 
 ## Features
 
@@ -166,9 +166,17 @@ Contributions for other models (Vector, PEAK, CANalyst, Kvaser, and others) are 
 
 This project is licensed under the [MIT License](LICENSE). See [`third_party/NOTICES`](third_party/NOTICES) for third-party component licenses.
 
+## Safe use
+
+- Use only on an **authorized bench or lab** bus. Do not let an agent transmit unattended on a vehicle control network or an unauthorized production line.
+- Both the CLI and MCP can send and periodically transmit. Confirm wiring, bitrate, and IDs first. For long runs, set an explicit duration or use a local resident process, and accept the operational risk yourself.
+- Keep MCP on the local machine. When HTTP is enabled, it binds to `127.0.0.1` only; do not expose it publicly.
+
 ## Disclaimer
 
 This project is an independent third-party tool. It has no affiliation, sponsorship, endorsement, or other interest relationship with the vendors below or their products. Vendor and product names are trademarks of their respective owners. Drivers and SDKs remain the property of those owners; users obtain them from official channels.
+
+The MIT license covers **this project's own code** only, with no warranty. Dependencies such as `python-can` and any user-supplied SDK keep their own terms; see [`third_party/NOTICES`](third_party/NOTICES). Do not treat the whole install tree as MIT.
 
 When a newly supported vendor requires the user to supply an SDK or proprietary driver, add a bullet here. One vendor's notice does not cover the others.
 
