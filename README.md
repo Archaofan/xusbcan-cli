@@ -1,6 +1,6 @@
 # xusbcan-cli
 
-面向 AI Agent 的 CAN 总线调试工具。目标是适配多种 CAN 卡；当前阶段真机确认的型号是周立功 USBCAN-2E-U 与 USBCAN-II。
+面向 AI Agent 的 CAN 总线调试工具。目标是适配多种 CAN 卡；当前阶段真机确认的型号包括周立功 USBCAN-2E-U、USBCAN-II，Vector VN1640A（python-can `vector`），以及创芯 USB_CAN-2C（ControlCAN）。
 
 中文 | [English](README.en.md)
 
@@ -38,7 +38,7 @@ pip install -e ".[mcp]"   # 追加 MCP 服务器支持
 
 ## 快速开始
 
-先看清手上的卡是哪一家、哪一型号，再按该型号准备驱动和配置。下面的周立功步骤只适用于已确认的 USBCAN-2E-U / USBCAN-II，不能套到其它厂商的卡上。
+先看清手上的卡是哪一家、哪一型号，再按该型号准备驱动和配置。周立功、Vector、创芯各自有专属步骤与环境变量，不要混用。
 
 ### 1. 通用前提与通用配置
 
@@ -113,7 +113,96 @@ nominal = 250000
 }
 ```
 
-### 3. 使用 CLI
+### 3. 型号专属：Vector VN1640A（真机已确认）
+
+该型号**不**走周立功 SDK，也**不要**设置 `ZLG_SDK_DIR`。打开时交给 python-can 已声明的 `vector` 后端；本仓库只登记型号快捷方式，不另造 Vector 驱动封装。
+
+还需要：
+
+- 本机已安装 Vector 驱动 / XL Driver（由 Vector 官方渠道获取与授权）
+- 配置里的 `channel` 使用与 python-can / XL Driver **相同的全局通道索引**（不做逻辑重映射）。硬件面板上的 Channel *N* 通常对应索引 `N - 1`，最终以本机枚举为准
+- 可选：直接写 `interface = "vector"`；或写 `vendor = "vector"` / `model = "VN1640A"`（快捷方式会带上按全局索引打开所需的默认参数）
+
+```toml
+[[devices]]
+name = "vn_ch3"
+vendor = "vector"
+model = "VN1640A"
+channel = 2          # 示例：硬件 Channel 3 → 索引 2；按实际接线修改
+nominal = 250000
+# data = 2000000    # 可选，该通道支持 CAN FD 时再写
+```
+
+同一套 CLI / MCP 命令即可按别名调用。Agent Skill 在确认型号为 VN1640A 后再读对应参考页。
+
+**本仓库真机验证范围（摘要）**：在受控台架上，与已确认的周立功 USBCAN-2E-U 接在同一路经典 CAN 总线上对照，覆盖打开/关闭与重开、双向收发、滤波、同卡多通道与双卡同时打开、`monitor` / `periodic`、以及 `scenario`（含 `burst_send` / `wait_n` / `repeat` 等）。未覆盖：主动构造错误帧、长时间 soak、实车网络、以及未接线通道上的行为。验证通过不代表每一台 VN1640A、每一种子卡组合或每一种 Vector 软件授权都已测过。
+
+MCP 客户端注册 Vector 卡时**不必**带 `ZLG_SDK_DIR`，只需本机 Vector 驱动可用，并指向正确的 `XUSBCAN_CONFIG`：
+
+```json
+{
+  "mcpServers": {
+    "xusbcan": {
+      "command": "xusbcan-mcp",
+      "env": {
+        "XUSBCAN_CONFIG": "D:\\path\\to\\xusbcan.toml"
+      }
+    }
+  }
+}
+```
+
+### 4. 型号专属：创芯 USB_CAN-2C（真机已确认）
+
+该型号使用创芯二次开发库 **ControlCAN**（`VCI_*`），**不要**设置 `ZLG_SDK_DIR`，也**不要**用周立功型号名打开。
+
+还需要：
+
+- 创芯 USB 驱动（系统能识别设备）
+- 与 Python 位数匹配的创芯 `ControlCAN.dll`
+- 环境变量 `CHUANGXIN_SDK_DIR` 指向含该 DLL 的目录（本工具用绝对路径加载）
+
+```bash
+# 仅当前终端示例（不要写进系统级环境，除非你自己要长期固定）
+set CHUANGXIN_SDK_DIR=D:\path\to\chuangxin-controlcan-dir
+```
+
+```toml
+[[devices]]
+name = "cx0"
+vendor = "chuangxin"
+model = "USB_CAN-2C"
+channel = 0             # 第一路 CAN；第二路为 1
+nominal = 250000
+```
+
+同一套 CLI / MCP 命令。`USB_CAN-2A-GD` 与 2C 属同一 ControlCAN 设备类型族，已登记为同后端；是否在你的板上可用，以真机为准。
+
+**本仓库真机验证范围（摘要）**：在受控台架上，与已确认的周立功 USBCAN-2E-U 接在同一路经典 CAN 上对照，覆盖打开/关闭与重开、双向收发、滤波、同卡双通道与双卡同时打开、`monitor` / `periodic`、以及 `scenario`（含 `burst_send` / `wait_n` / `repeat` 等）。未覆盖：主动构造错误帧、长时间 soak、实车网络。验证通过不代表每一台 USB_CAN-2C 或每一种主机环境都已测过。
+
+**共存说明（写入配置时请遵守）**：
+
+- 本工具下，周立功路径使用 `ZLG_SDK_DIR`（`zlgcan.dll`），创芯路径使用 `CHUANGXIN_SDK_DIR`（`ControlCAN.dll`）。两个目录分开配置后，**可以在同一进程中同时打开**已确认的周立功 2E 与创芯 2C。
+- **不要**在同一进程里加载两份不同内容、但文件名都叫 `ControlCAN.dll` 的库（操作系统按模块名通常只会保留一份）。若其它软件也依赖各自的 `ControlCAN.dll`，请按各软件要求分目录或分进程，避免互相覆盖。
+- 配置必须写明 `chuangxin` / `USB_CAN-2C`（或已登记的同族型号）。不要用周立功的 `USBCAN-II` 条目去打开创芯卡。
+
+MCP 注册创芯卡时带上 `CHUANGXIN_SDK_DIR`（及 `XUSBCAN_CONFIG`），不要带 `ZLG_SDK_DIR`，除非同进程还要开周立功卡：
+
+```json
+{
+  "mcpServers": {
+    "xusbcan": {
+      "command": "xusbcan-mcp",
+      "env": {
+        "CHUANGXIN_SDK_DIR": "D:\\path\\to\\chuangxin-controlcan-dir",
+        "XUSBCAN_CONFIG": "D:\\path\\to\\xusbcan.toml"
+      }
+    }
+  }
+}
+```
+
+### 5. 使用 CLI
 
 ```bash
 xusbcan list
@@ -147,8 +236,11 @@ npx skills add Archaofan/xusbcan-cli --skill xusbcan
 |------|-------------|------|
 | 真机已确认 | 周立功 USBCAN-2E-U | 本仓库提供该型号的后端。需要 `ZLG_SDK_DIR` 与周立功驱动、SDK |
 | 真机已确认 | 周立功 USBCAN-II | 同一 `zlg` 后端按型号分发。同样需要 `ZLG_SDK_DIR` 与周立功驱动、SDK |
+| 真机已确认 | Vector VN1640A | 打开时交给 python-can 的 `vector`；通道号与 XL 全局索引一致（无重映射）。需要 Vector 驱动。可通过 CLI / MCP 供 Agent 按需调用。CAN FD 写 `data` |
+| 真机已确认 | 创芯 USB_CAN-2C | 本仓库 ControlCAN 后端。需要 `CHUANGXIN_SDK_DIR` 与创芯驱动、DLL。可通过 CLI / MCP 按需调用 |
+| 已登记，本仓库未做真机确认 | 创芯 USB_CAN-2A-GD | 与 2C 同一 ControlCAN 后端与设备类型族；以真机为准 |
+| 已登记，本仓库未做真机确认 | Vector VN1630 | 打开时交给 python-can 的 `vector`，通道 `0` 和 `1`。需要 Vector 驱动。CAN FD 写 `data` |
 | 已登记，本仓库未做真机确认 | PEAK PCAN-USB | 打开时交给 python-can 的 `pcan`。需要 PEAK 自己的驱动，不要设置 `ZLG_SDK_DIR` |
-| 已登记，本仓库未做真机确认 | Vector VN1630 | 打开时交给 python-can 的 `vector`，通道 `0` 和 `1`。需要 Vector 自己的驱动。CAN FD 写 `data` |
 
 python-can 声明的其它后端（socketcan、slcan、Kvaser 等）在配置里写 `interface` 即可由 CLI / MCP 打开。上表只是带了额外映射的型号，不是一张准入名单。本仓库没有逐张做真机确认；驱动和该后端要求的 `channel`、`extra` 仍要按 python-can 的说明准备。
 
@@ -184,3 +276,5 @@ python-can 没有的卡才需要新后端。新后端若要用户自备 SDK，�
 每支持一家需要使用者自备 SDK 或专有驱动的厂商，在此追加一条。不要把某一家的声明当成覆盖所有厂商。
 
 - **广州致远电子股份有限公司（周立功 / ZLG）**：当前直接对接其公开二次开发接口的型号是 USBCAN-2E-U 与 USBCAN-II。"周立功"、"ZLG"、"zlgcan" 等名称均为其商标。本项目不随附其驱动或 `zlgcan.dll`。
+- **Vector Informatik GmbH（Vector）**：VN1640A 等型号经 python-can 的 `vector` 后端打开；本项目不实现、不随附 Vector 驱动、XL Driver、CANoe/CANalyzer 或其它 Vector 专有软件。"Vector"、"VN1640A"、"XL Driver" 等名称均为其权利人商标。驱动与运行库须由使用者自行取得合法授权；本仓库的真机确认仅覆盖上文所述台架范围，不构成对 Vector 产品的性能、兼容性或适销性担保。
+- **珠海创芯科技有限公司（创芯）**：USB_CAN-2C 等型号经本仓库的 ControlCAN（`VCI_*`）薄封装打开。"创芯"、"USB_CAN-2C"、"CANalyst" 等名称均为其权利人商标。本项目不随附创芯驱动或 `ControlCAN.dll`；使用者须从官方渠道自行获取，并通过 `CHUANGXIN_SDK_DIR` 定位。真机确认仅覆盖上文台架范围，不构成性能或适销性担保。

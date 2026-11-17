@@ -25,3 +25,9 @@ Hold one process for a long job: MCP `open_device`, or one `can.Bus` / core sess
 ## Do not reuse another card's setup
 
 Driver, environment variables, channel type, and `extra` keys belong to the backend named in the config. Copying one vendor's SDK variable or channel string onto another backend will not open the device.
+
+Examples: `ZLG_SDK_DIR` is only for Zhou Ligong backends; `CHUANGXIN_SDK_DIR` is only for Chuangxin ControlCAN; Vector VN1640A needs the Vector driver and the XL global channel index. Keep SDK directories separate. Do not load two different `ControlCAN.dll` files in one process.
+
+## Verified does not mean every feature
+
+A model marked verified on hardware in the README still has a finite bench scope. Do not invent error-frame injection, soak guarantees, or in-vehicle authorization from that label. Stay inside the public CLI / MCP commands and the matching model reference.

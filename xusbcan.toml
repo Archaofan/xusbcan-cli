@@ -1,5 +1,6 @@
-# 示例配置：周立功 USBCAN-2E-U / USBCAN-II 均需 ZLG_SDK_DIR（含 zlgcan.dll 与 kerneldlls/）。
-# python-can 已声明的其它后端写 interface（如 socketcan），不必登记型号。
+# 示例配置：各厂商 SDK 目录用各自环境变量指向（勿混用）。
+# 周立功：ZLG_SDK_DIR（zlgcan.dll）。创芯：CHUANGXIN_SDK_DIR（ControlCAN.dll）。
+# Vector：python-can vector，通道号与 XL 全局索引一致。
 
 [server]
 backend = "stdio"          # MCP 传输：stdio | http（http 只绑 127.0.0.1）
@@ -16,5 +17,19 @@ nominal = 250000           # 标称波特率 250k
 name = "bus1"              # USBCAN-II 示例别名
 vendor = "zlg"
 model = "USBCAN-II"
+channel = 0
+nominal = 250000
+
+[[devices]]
+name = "vn_ch3"            # VN1640A 硬件 Channel 3 → python-can channel=2
+vendor = "vector"
+model = "VN1640A"
+channel = 2
+nominal = 250000
+
+[[devices]]
+name = "cx0"               # 创芯 USB_CAN-2C 通道 0（第一路）
+vendor = "chuangxin"
+model = "USB_CAN-2C"
 channel = 0
 nominal = 250000

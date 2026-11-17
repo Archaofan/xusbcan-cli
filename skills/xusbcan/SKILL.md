@@ -1,11 +1,11 @@
 ---
 name: xusbcan
-description: Use when an agent must send, receive, monitor, or periodically transmit CAN frames with xusbcan-cli, xusbcan-mcp, or a python-can interface named in xusbcan config, including a long-running script. Also when the adapter model is still unknown. When the configured model is Zhou Ligong USBCAN-2E-U, also when receive goes empty after a filter change, transmit blocks with no ACK, hardware periodic send conflicts with normal transmit, or the device will not reopen right after close. When the model is Zhou Ligong USBCAN-II, also when soft filters, soft periodic send, no-ACK transmit stalls, or reopen-after-close need the II-specific path.
+description: Use when an agent must send, receive, monitor, or periodically transmit CAN frames with xusbcan-cli, xusbcan-mcp, or a python-can interface named in xusbcan config, including a long-running script. Also when the adapter model is still unknown. When the configured model is Zhou Ligong USBCAN-2E-U, also when receive goes empty after a filter change, transmit blocks with no ACK, hardware periodic send conflicts with normal transmit, or the device will not reopen right after close. When the model is Zhou Ligong USBCAN-II, also when soft filters, soft periodic send, no-ACK transmit stalls, or reopen-after-close need the II-specific path. When the model is Vector VN1640A (or interface vector for that card), also when choosing the XL global channel index, multi-channel open, soft filters beside other bus traffic, or reopen after close. When the model is Chuangxin USB_CAN-2C (or USB_CAN-2A-GD on the same backend), also when CHUANGXIN_SDK_DIR, ControlCAN loading, or coexistence with a separate ZLG_SDK_DIR setup is involved.
 license: MIT
 compatibility: Python 3.11+. Drivers depend on the backend named in the config. Read a model reference only when that model is the one configured.
 metadata:
   author: xusbcan-cli
-  version: "1.7"
+  version: "1.9"
 ---
 
 # xusbcan
@@ -36,7 +36,12 @@ When not to use: changing product firmware, or editing ignored local design note
 3. Open a model reference only after the name matches.
    - `vendor = "zlg"` and `model = "USBCAN-2E-U"` → [references/zlg-usbcan-2e-u.md](references/zlg-usbcan-2e-u.md)
    - `vendor = "zlg"` and `model = "USBCAN-II"` → [references/zlg-usbcan-ii.md](references/zlg-usbcan-ii.md)
-   - Bare `interface = "zlg"` without a model: prefer the model that matches `device_type` in `extra` (21 → 2E-U, 4 → II). Do not open the wrong ZLG reference for PEAK, Vector, or socketcan.
+   - `vendor = "vector"` and `model = "VN1640A"` → [references/vector-vn1640a.md](references/vector-vn1640a.md)
+   - `vendor = "chuangxin"` and `model = "USB_CAN-2C"` → [references/chuangxin-usb-can-2c.md](references/chuangxin-usb-can-2c.md)
+   - `vendor = "chuangxin"` and `model = "USB_CAN-2A-GD"` → same reference for setup; confirm hardware before claiming verification
+   - Bare `interface = "zlg"` without a model: prefer the model that matches `device_type` in `extra` (21 → 2E-U, 4 → II). Do not open the wrong ZLG reference for PEAK, Vector, Chuangxin, or socketcan.
+   - Bare `interface = "vector"` aimed at a VN1640A: read the VN1640A reference for channel-index rules. Do not apply ZLG or Chuangxin SDK variables. Do not assume an unverified Vector model shares the same bench results.
+   - Bare `interface = "chuangxin"`: require `CHUANGXIN_SDK_DIR` and channels `0`/`1`. Do not use `ZLG_SDK_DIR` for this backend.
 
 ## Which interface
 

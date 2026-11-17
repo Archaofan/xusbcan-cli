@@ -10,7 +10,29 @@ channel = "can0"
 nominal = 500000
 ```
 
-`interface` is any backend python-can declares. A `vendor` / `model` shortcut is optional and is skipped when `interface` is set. Model-specific setup, such as a vendor SDK directory, belongs in that model's reference and is used only when the config names that model.
+Verified Vector example (channel is the XL / python-can global index; no remapping):
+
+```toml
+[[devices]]
+name = "vn_ch3"
+vendor = "vector"
+model = "VN1640A"
+channel = 2
+nominal = 250000
+```
+
+Verified Chuangxin example (`CHUANGXIN_SDK_DIR` must point at the ControlCAN.dll directory):
+
+```toml
+[[devices]]
+name = "cx0"
+vendor = "chuangxin"
+model = "USB_CAN-2C"
+channel = 0
+nominal = 250000
+```
+
+`interface` is any backend python-can declares. A `vendor` / `model` shortcut is optional and is skipped when `interface` is set. Model-specific setup, such as a vendor SDK directory or Vector driver prerequisites, belongs in that model's reference and is used only when the config names that model.
 
 ## CLI (one shot)
 

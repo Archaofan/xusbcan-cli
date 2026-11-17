@@ -82,3 +82,21 @@ INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
 CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
 ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 POSSIBILITY OF SUCH DAMAGE.
+
+---
+
+## 4. 用户自备：Vector 驱动 / XL Driver（本仓不含厂商软件）
+
+本节适用于使用者从 Vector Informatik 官方渠道自行获取并安装的 Vector 驱动、XL Driver 及关联运行库。  
+本项目通过 python-can 的 `vector` 后端调用本机已安装的驱动；**不随本项目源码、PyPI 包或 Git 仓库分发** Vector 驱动、XL Driver、CANoe/CANalyzer 或其它 Vector 专有软件。
+
+许可、安装与使用条件以 Vector 向使用者提供的官方协议为准。本仓库的型号登记与真机确认说明不改变那些协议，也不构成对 Vector 产品的背书或担保。
+
+---
+
+## 5. 用户自备：创芯 ControlCAN（本仓不含厂商软件）
+
+本节适用于使用者从珠海创芯科技官方渠道自行获取并安装的 USB 驱动与 `ControlCAN.dll`。  
+本项目通过环境变量 `CHUANGXIN_SDK_DIR` **定位**含该 DLL 的目录，并以绝对路径加载；**不随本项目源码、PyPI 包或 Git 仓库分发**创芯驱动或 `ControlCAN.dll`。
+
+许可、安装与使用条件以创芯向使用者提供的官方协议为准。请将创芯 DLL 目录与周立功 `ZLG_SDK_DIR` 目录分开配置；同一进程中不要加载两份不同内容但同名的 `ControlCAN.dll`。

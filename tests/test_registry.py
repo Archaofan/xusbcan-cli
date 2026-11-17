@@ -63,6 +63,30 @@ def test_vector_profile_allows_second_channel_and_fd():
     assert kwargs["fd"] is True
 
 
+def test_vector_vn1640a_uses_python_can_channel_index():
+    """VN1640A：通道号原样交给 python-can，不做逻辑重映射。"""
+    p = resolve(DeviceSpec(vendor="vector", model="VN1640A"))
+    assert p.interface == "vector"
+    assert p.channels == 5
+    assert p.fd is True
+    assert p.channel_map is None
+    assert p.options == {"app_name": None}
+
+    spec = DeviceSpec(
+        vendor="vector",
+        model="VN1640A",
+        channel=2,
+        bitrate=BitrateConfig(nominal=250_000),
+    )
+    with mock.patch.object(registry.can, "Bus") as mock_bus:
+        registry.open_bus(spec)
+    kwargs = mock_bus.call_args.kwargs
+    assert kwargs["interface"] == "vector"
+    assert kwargs["channel"] == 2
+    assert kwargs["bitrate"] == 250_000
+    assert kwargs["app_name"] is None
+
+
 def test_classic_profile_rejects_data_bitrate():
     spec = DeviceSpec(
         vendor="zlg",

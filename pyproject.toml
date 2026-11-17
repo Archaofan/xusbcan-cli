@@ -22,6 +22,7 @@ xusbcan-mcp = "xusbcan.mcp.server:main"
 
 [project.entry-points."can.interface"]
 zlg = "xusbcan.adapters.zlg.backend:ZlgBus"
+chuangxin = "xusbcan.adapters.chuangxin.backend:ChuangxinBus"
 
 [tool.setuptools.packages.find]
 where = ["src"]
