@@ -3,6 +3,7 @@
 不含厂商概念；长编排请用本模块或 MCP 会话，不要循环 CLI 开关设备。
 """
 
+from .loader import load_scenario
 from .runner import run_scenario
 
-__all__ = ["run_scenario"]
+__all__ = ["load_scenario", "run_scenario"]

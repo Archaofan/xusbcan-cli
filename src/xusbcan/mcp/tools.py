@@ -116,10 +116,12 @@ def register_tools(mcp, manager: core.SessionManager) -> None:
             return _json(Result.err(ErrorCode.INVALID_ARGUMENT, f"steps_json 无效: {e}"))
         if isinstance(payload, list):
             steps = payload
+            variables: dict = {}
         elif isinstance(payload, dict) and isinstance(payload.get("steps"), list):
             steps = payload["steps"]
+            variables = dict(payload.get("vars") or {})
         else:
             return _json(
                 Result.err(ErrorCode.INVALID_ARGUMENT, "需要 steps 数组或含 steps 的对象")
             )
-        return _json(execute_scenario(manager, steps))
+        return _json(execute_scenario(manager, steps, variables=variables))

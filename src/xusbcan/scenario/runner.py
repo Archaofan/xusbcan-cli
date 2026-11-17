@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import re
 import time
 from typing import Any
 
@@ -23,11 +24,44 @@ from ..core.session import SessionManager
 from ..models.frame import CanFrame
 from ..models.result import ErrorCode, Result
 
+_VAR_PATTERN = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
+
 
 def _parse_id(value: Any) -> int:
     if isinstance(value, int):
         return value
     return int(str(value), 0)
+
+
+def _expand_string(text: str, variables: dict[str, Any]) -> str:
+    def repl(match: re.Match[str]) -> str:
+        key = match.group(1)
+        if key not in variables:
+            raise KeyError(f"未定义变量: {key}")
+        return str(variables[key])
+
+    return _VAR_PATTERN.sub(repl, text)
+
+
+def _expand_value(value: Any, variables: dict[str, Any]) -> Any:
+    if isinstance(value, str):
+        return _expand_string(value, variables)
+    if isinstance(value, list):
+        return [_expand_value(v, variables) for v in value]
+    if isinstance(value, dict):
+        return {k: _expand_value(v, variables) for k, v in value.items()}
+    return value
+
+
+def _expand_step(step: dict, variables: dict[str, Any]) -> dict:
+    """展开步骤字段；嵌套 steps 留给子执行再展开，避免过早固化。"""
+    out: dict[str, Any] = {}
+    for key, value in step.items():
+        if key in {"steps", "on_fail", "on_ok"}:
+            out[key] = value
+        else:
+            out[key] = _expand_value(value, variables)
+    return out
 
 
 def _norm_hex(value: str | bytes | None) -> str | None:
@@ -301,26 +335,13 @@ def _step_burst_send(manager: SessionManager, step: dict) -> dict:
     }
 
 
-def _run_child_steps(
+def _step_repeat(
     manager: SessionManager,
-    steps: list[dict],
+    step: dict,
     *,
     stop_on_error: bool,
-) -> tuple[list[dict], int | None]:
-    records: list[dict] = []
-    failed_at: int | None = None
-    for index, step in enumerate(steps):
-        detail = _dispatch(manager, step, stop_on_error=stop_on_error)
-        record = {"index": index, "action": str(step.get("action", "")), **detail}
-        records.append(record)
-        if not detail.get("ok", False):
-            failed_at = index
-            if stop_on_error:
-                break
-    return records, failed_at
-
-
-def _step_repeat(manager: SessionManager, step: dict, *, stop_on_error: bool) -> dict:
+    variables: dict[str, Any],
+) -> dict:
     count = int(step.get("count", 1))
     child = list(step.get("steps") or [])
     if count < 1 or not child:
@@ -328,7 +349,9 @@ def _step_repeat(manager: SessionManager, step: dict, *, stop_on_error: bool) ->
     t0 = time.perf_counter()
     rounds: list[dict] = []
     for i in range(count):
-        records, failed_at = _run_child_steps(manager, child, stop_on_error=stop_on_error)
+        records, failed_at = _run_child_steps(
+            manager, child, stop_on_error=stop_on_error, variables=variables
+        )
         rounds.append({"round": i, "steps": records, "failed_at": failed_at})
         if failed_at is not None:
             return {
@@ -345,7 +368,13 @@ def _step_repeat(manager: SessionManager, step: dict, *, stop_on_error: bool) ->
     }
 
 
-def _step_try(manager: SessionManager, step: dict, *, stop_on_error: bool) -> dict:
+def _step_try(
+    manager: SessionManager,
+    step: dict,
+    *,
+    stop_on_error: bool,
+    variables: dict[str, Any],
+) -> dict:
     primary = list(step.get("steps") or [])
     on_fail = list(step.get("on_fail") or [])
     on_ok = list(step.get("on_ok") or [])
@@ -353,13 +382,13 @@ def _step_try(manager: SessionManager, step: dict, *, stop_on_error: bool) -> di
         return {"ok": False, "error": "try 需要非空 steps"}
     t0 = time.perf_counter()
     primary_records, failed_at = _run_child_steps(
-        manager, primary, stop_on_error=True
+        manager, primary, stop_on_error=True, variables=variables
     )
     if failed_at is None:
         ok_records: list[dict] = []
         if on_ok:
             ok_records, ok_fail = _run_child_steps(
-                manager, on_ok, stop_on_error=stop_on_error
+                manager, on_ok, stop_on_error=stop_on_error, variables=variables
             )
             if ok_fail is not None:
                 return {
@@ -387,7 +416,7 @@ def _step_try(manager: SessionManager, step: dict, *, stop_on_error: bool) -> di
             "error": "try 主路径失败且无 on_fail",
         }
     fail_records, fail_at = _run_child_steps(
-        manager, on_fail, stop_on_error=stop_on_error
+        manager, on_fail, stop_on_error=stop_on_error, variables=variables
     )
     ok = fail_at is None
     return {
@@ -400,40 +429,80 @@ def _step_try(manager: SessionManager, step: dict, *, stop_on_error: bool) -> di
     }
 
 
-def _dispatch(manager: SessionManager, step: dict, *, stop_on_error: bool) -> dict:
-    action = str(step.get("action", "")).strip()
+def _dispatch(
+    manager: SessionManager,
+    step: dict,
+    *,
+    stop_on_error: bool,
+    variables: dict[str, Any],
+) -> dict:
     try:
+        expanded = _expand_step(step, variables)
+    except KeyError as e:
+        return {"ok": False, "error": str(e)}
+    action = str(expanded.get("action", "")).strip()
+    try:
+        if action == "set":
+            name = str(expanded["name"])
+            variables[name] = expanded.get("value")
+            return {"ok": True, "elapsed_ms": 0.0, "name": name, "value": variables[name]}
         if action == "send":
-            return _step_send(manager, step)
+            return _step_send(manager, expanded)
         if action == "wait_id":
-            return _step_wait_id(manager, step)
+            return _step_wait_id(manager, expanded)
         if action == "wait_n":
-            return _step_wait_n(manager, step)
+            return _step_wait_n(manager, expanded)
         if action == "drain":
-            return _step_drain(manager, step)
+            return _step_drain(manager, expanded)
         if action == "sleep":
-            return _step_sleep(step)
+            return _step_sleep(expanded)
         if action == "filter":
-            return _step_filter(manager, step)
+            return _step_filter(manager, expanded)
         if action == "accept_all":
-            return _step_accept_all(manager, step)
+            return _step_accept_all(manager, expanded)
         if action == "open":
-            return _step_open(manager, step)
+            return _step_open(manager, expanded)
         if action == "close":
-            return _step_close(manager, step)
+            return _step_close(manager, expanded)
         if action == "periodic_start":
-            return _step_periodic_start(manager, step)
+            return _step_periodic_start(manager, expanded)
         if action == "periodic_stop":
-            return _step_periodic_stop(manager, step)
+            return _step_periodic_stop(manager, expanded)
         if action == "burst_send":
-            return _step_burst_send(manager, step)
+            return _step_burst_send(manager, expanded)
         if action == "repeat":
-            return _step_repeat(manager, step, stop_on_error=stop_on_error)
+            return _step_repeat(
+                manager, expanded, stop_on_error=stop_on_error, variables=variables
+            )
         if action == "try":
-            return _step_try(manager, step, stop_on_error=stop_on_error)
+            return _step_try(
+                manager, expanded, stop_on_error=stop_on_error, variables=variables
+            )
         return {"ok": False, "error": f"未知步骤: {action}"}
     except Exception as e:  # noqa: BLE001 — 收拢为步骤失败
         return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
+
+def _run_child_steps(
+    manager: SessionManager,
+    steps: list[dict],
+    *,
+    stop_on_error: bool,
+    variables: dict[str, Any],
+) -> tuple[list[dict], int | None]:
+    records: list[dict] = []
+    failed_at: int | None = None
+    for index, step in enumerate(steps):
+        detail = _dispatch(
+            manager, step, stop_on_error=stop_on_error, variables=variables
+        )
+        record = {"index": index, "action": str(step.get("action", "")), **detail}
+        records.append(record)
+        if not detail.get("ok", False):
+            failed_at = index
+            if stop_on_error:
+                break
+    return records, failed_at
 
 
 def run_scenario(
@@ -441,15 +510,19 @@ def run_scenario(
     steps: list[dict],
     *,
     stop_on_error: bool = True,
+    variables: dict[str, Any] | None = None,
 ) -> Result:
     """按顺序执行步骤。默认遇错停止；``data.steps`` 含每步耗时与结果。"""
     if not steps:
         return Result.err(ErrorCode.INVALID_ARGUMENT, "剧本没有步骤")
 
+    vars_map: dict[str, Any] = dict(variables or {})
     records: list[dict] = []
     failed_at: int | None = None
     for index, step in enumerate(steps):
-        detail = _dispatch(manager, step, stop_on_error=stop_on_error)
+        detail = _dispatch(
+            manager, step, stop_on_error=stop_on_error, variables=vars_map
+        )
         record = {"index": index, "action": str(step.get("action", "")), **detail}
         records.append(record)
         if not detail.get("ok", False):
@@ -457,7 +530,12 @@ def run_scenario(
             if stop_on_error:
                 break
 
-    payload = {"steps": records, "failed_at": failed_at, "count": len(records)}
+    payload = {
+        "steps": records,
+        "failed_at": failed_at,
+        "count": len(records),
+        "vars": dict(vars_map),
+    }
     if failed_at is not None:
         return Result.err(
             ErrorCode.INTERNAL_ERROR,

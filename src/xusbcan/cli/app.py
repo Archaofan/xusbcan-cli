@@ -28,7 +28,7 @@ from ..core import (
 )
 from ..models.frame import CanFrame
 from ..models.result import ErrorCode, Result
-from ..scenario import run_scenario
+from ..scenario import load_scenario, run_scenario
 
 
 def _add_filter_args(parser: argparse.ArgumentParser) -> None:
@@ -144,20 +144,13 @@ def dispatch(args: argparse.Namespace) -> Result:
 
 def _scenario_for(mgr: SessionManager, path: str) -> Result:
     try:
-        with open(path, encoding="utf-8") as f:
-            payload = json.load(f)
+        steps, variables = load_scenario(path)
     except OSError as e:
         return Result.err(ErrorCode.CONFIG_ERROR, f"无法读取剧本: {e}")
-    except json.JSONDecodeError as e:
-        return Result.err(ErrorCode.INVALID_ARGUMENT, f"剧本 JSON 无效: {e}")
-    if isinstance(payload, list):
-        steps = payload
-    elif isinstance(payload, dict) and isinstance(payload.get("steps"), list):
-        steps = payload["steps"]
-    else:
-        return Result.err(ErrorCode.INVALID_ARGUMENT, "剧本需为 steps 数组或含 steps 的对象")
+    except (json.JSONDecodeError, ValueError) as e:
+        return Result.err(ErrorCode.INVALID_ARGUMENT, f"剧本无效: {e}")
     try:
-        return run_scenario(mgr, steps)
+        return run_scenario(mgr, steps, variables=variables)
     finally:
         mgr.close_all()
 
