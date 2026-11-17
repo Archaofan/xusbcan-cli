@@ -232,6 +232,89 @@ def test_scenario_burst_and_repeat_budget():
     mgr.close_all()
 
 
+def test_scenario_sleep_step_cap_and_nonfinite():
+    from xusbcan.scenario.runner import MAX_STEP_BLOCK_S
+
+    mgr = _mgr()
+    open_session(mgr, "a")
+    long_sleep = run_scenario(
+        mgr,
+        [{"action": "sleep", "seconds": MAX_STEP_BLOCK_S + 1}],
+    )
+    assert long_sleep.status == "error"
+    assert "上限" in (long_sleep.data["steps"][0].get("error") or "")
+
+    bad = run_scenario(
+        mgr,
+        [{"action": "sleep", "seconds": float("nan")}],
+    )
+    assert bad.status == "error"
+    assert "有限数" in (bad.data["steps"][0].get("error") or "")
+    mgr.close_all()
+
+
+def test_scenario_send_frame_budget():
+    from xusbcan.scenario import runner as runner_mod
+
+    mgr = _mgr()
+    open_session(mgr, "a")
+    old = runner_mod.MAX_SCENARIO_SEND_FRAMES
+    runner_mod.MAX_SCENARIO_SEND_FRAMES = 3
+    try:
+        result = run_scenario(
+            mgr,
+            [
+                {"action": "burst_send", "device": "a", "id": 0x11, "data": "01", "count": 2},
+                {"action": "burst_send", "device": "a", "id": 0x12, "data": "02", "count": 2},
+            ],
+        )
+        assert result.status == "error"
+        assert "累计发送" in (result.data["steps"][1].get("error") or "")
+        assert result.data["budget"]["send_frames"] == 3
+    finally:
+        runner_mod.MAX_SCENARIO_SEND_FRAMES = old
+    mgr.close_all()
+
+
+def test_scenario_multi_device_periodic_cleanup_on_fail():
+    from xusbcan.core import periodic_list
+
+    mgr = _mgr()
+    open_session(mgr, "a")
+    open_session(mgr, "b")
+    result = run_scenario(
+        mgr,
+        [
+            {
+                "action": "periodic_start",
+                "device": "a",
+                "name": "ha",
+                "id": 0x100,
+                "data": "01",
+                "period": 0.05,
+                "duration_s": 30.0,
+            },
+            {
+                "action": "periodic_start",
+                "device": "b",
+                "name": "hb",
+                "id": 0x200,
+                "data": "02",
+                "period": 0.05,
+                "duration_s": 30.0,
+            },
+            {"action": "wait_id", "device": "a", "id": 0x7EE, "timeout": 0.05},
+        ],
+    )
+    assert result.status == "error"
+    stopped = { (c["device"], c["name"]): c["stopped"] for c in result.data["cleaned_periodics"] }
+    assert stopped.get(("a", "ha")) is True
+    assert stopped.get(("b", "hb")) is True
+    assert periodic_list(mgr, "a").data["tasks"] == []
+    assert periodic_list(mgr, "b").data["tasks"] == []
+    mgr.close_all()
+
+
 def test_mcp_run_scenario_tool():
     mgr = _mgr()
     host = _Host()

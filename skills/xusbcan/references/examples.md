@@ -32,7 +32,7 @@ Extended frame: add `--ext`. Each command prints one JSON object and exits. `per
 `open` `send` `wait_id` `wait_n` `drain` `burst_send` `filter` `accept_all` `sleep` `repeat` `try` `set` `periodic_*` `close`.
 File-level `vars` and `${name}` placeholders are expanded before each step.
 `wait_id` / `wait_n` may set `"store": {"var": "id|data|dlc|ext"}` to capture fields into vars.
-Scenario `periodic_start` requires `duration` / `duration_s` (max 300 seconds, same as MCP). On success, failure, or exception, the runner stops periodics this scenario still owns. Wall time, step count, `repeat.count`, and `burst_send.count` are budget-capped.
+Scenario `periodic_start` requires `duration` / `duration_s` (max 300 seconds, same as MCP). On success, failure, or exception, the runner stops periodics this scenario still owns. A shared wall-clock deadline (300s) is checked inside sleep/wait/drain/burst; single blocking steps are capped (60s); step count, total send frames, `repeat.count`, and `burst_send.count` are budget-capped. Non-finite floats are rejected.
 
 Example:
 

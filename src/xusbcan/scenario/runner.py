@@ -2,14 +2,16 @@
 
 步骤不含厂商概念；长编排在同进程 SessionManager 上执行。
 
-Agent / MCP 路径的安全边界：
+Agent / MCP 路径的应用层安全边界（非硬实时）：
 - ``periodic_start`` 必须带 ``duration_s``（与 MCP 相同上限）；
 - 本剧本启动的周期任务在结束（成功、失败、异常）时统一清理；
-- 总墙钟时长、步骤数、``repeat`` / ``burst_send`` 有预算上限。
+- 统一 Scenario deadline；sleep / wait / drain / burst 在循环内检查；
+- 步骤数、单步阻塞时长、累计发帧、``repeat`` / ``burst_send`` 有预算上限。
 """
 
 from __future__ import annotations
 
+import math
 import re
 import time
 from dataclasses import dataclass, field
@@ -33,11 +35,14 @@ from ..models.result import ErrorCode, Result
 
 _VAR_PATTERN = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 
-# 与 MCP 周期发送同量级的墙钟上限；更长请拆剧本或本机常驻进程。
+# 应用层预算：更长请拆剧本或本机常驻进程。不保证驱动/原生调用可被打断。
 MAX_SCENARIO_WALL_S = 300.0
 MAX_SCENARIO_STEPS = 500
+MAX_SCENARIO_SEND_FRAMES = 10_000
+MAX_STEP_BLOCK_S = 60.0
 MAX_REPEAT_COUNT = 100
 MAX_BURST_COUNT = 1000
+_SLEEP_SLICE_S = 0.05
 
 
 @dataclass
@@ -45,15 +50,35 @@ class ScenarioRuntime:
     """单次 ``run_scenario`` 的预算与本剧本启动的周期任务登记。"""
 
     started_at: float = field(default_factory=time.perf_counter)
+    deadline: float = field(init=False)
     steps_run: int = 0
+    send_frames: int = 0
     owned_periodics: list[tuple[str, str]] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        self.deadline = self.started_at + MAX_SCENARIO_WALL_S
+
+    def remaining(self) -> float:
+        return self.deadline - time.perf_counter()
+
+    def overdue(self) -> bool:
+        return time.perf_counter() >= self.deadline
 
     def check_budget(self) -> str | None:
         if self.steps_run >= MAX_SCENARIO_STEPS:
             return f"剧本步骤数上限 {MAX_SCENARIO_STEPS}"
-        elapsed = time.perf_counter() - self.started_at
-        if elapsed > MAX_SCENARIO_WALL_S:
+        if self.overdue():
             return f"剧本总时长上限 {MAX_SCENARIO_WALL_S:g} 秒"
+        if self.send_frames > MAX_SCENARIO_SEND_FRAMES:
+            return f"剧本累计发送上限 {MAX_SCENARIO_SEND_FRAMES}"
+        return None
+
+    def note_send(self, count: int = 1) -> str | None:
+        if count < 0:
+            return "发送计数无效"
+        if self.send_frames + count > MAX_SCENARIO_SEND_FRAMES:
+            return f"剧本累计发送上限 {MAX_SCENARIO_SEND_FRAMES}"
+        self.send_frames += count
         return None
 
     def note_periodic(self, alias: str, name: str) -> None:
@@ -66,19 +91,72 @@ class ScenarioRuntime:
         self.owned_periodics = [k for k in self.owned_periodics if k != key]
 
     def cleanup_periodics(self, manager: SessionManager) -> list[dict]:
-        """best-effort 停止本剧本仍登记的周期任务。"""
+        """best-effort 停止本剧本仍登记的周期任务；单任务失败不影响后续。"""
         cleaned: list[dict] = []
         for alias, name in list(self.owned_periodics):
-            result = periodic_stop(manager, alias, name)
-            cleaned.append(
-                {
-                    "device": alias,
-                    "name": name,
-                    "stopped": result.status == "ok",
-                }
-            )
+            entry: dict[str, Any] = {"device": alias, "name": name, "stopped": False}
+            try:
+                result = periodic_stop(manager, alias, name)
+                entry["stopped"] = result.status == "ok"
+                if result.status != "ok" and result.error is not None:
+                    entry["error"] = result.error.message
+            except Exception as exc:  # noqa: BLE001 — 隔离清理失败
+                entry["error"] = f"{type(exc).__name__}: {exc}"
+            cleaned.append(entry)
             self.forget_periodic(alias, name)
         return cleaned
+
+
+def _finite_float(
+    name: str,
+    value: Any,
+    *,
+    minimum: float | None = None,
+    maximum: float | None = None,
+    allow_zero: bool = True,
+) -> tuple[float | None, str | None]:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None, f"{name} 无效"
+    if not math.isfinite(number):
+        return None, f"{name} 必须为有限数"
+    if not allow_zero and number == 0:
+        return None, f"{name} 必须非零"
+    if minimum is not None and number < minimum:
+        return None, f"{name} 必须 >= {minimum:g}"
+    if maximum is not None and number > maximum:
+        return None, f"{name} 上限 {maximum:g}"
+    return number, None
+
+
+def _sleep_for(seconds: float, runtime: ScenarioRuntime, *, t0: float) -> dict | None:
+    """执行有界睡眠；超时返回失败步骤字典。"""
+    if seconds <= 0:
+        return None
+    target_end = time.perf_counter() + seconds
+    while time.perf_counter() < target_end:
+        if runtime.overdue():
+            return {
+                "ok": False,
+                "elapsed_ms": round((time.perf_counter() - t0) * 1000, 3),
+                "error": f"剧本总时长上限 {MAX_SCENARIO_WALL_S:g} 秒",
+            }
+        slice_s = min(_SLEEP_SLICE_S, target_end - time.perf_counter(), runtime.remaining())
+        if slice_s <= 0:
+            return {
+                "ok": False,
+                "elapsed_ms": round((time.perf_counter() - t0) * 1000, 3),
+                "error": f"剧本总时长上限 {MAX_SCENARIO_WALL_S:g} 秒",
+            }
+        time.sleep(slice_s)
+    if runtime.overdue():
+        return {
+            "ok": False,
+            "elapsed_ms": round((time.perf_counter() - t0) * 1000, 3),
+            "error": f"剧本总时长上限 {MAX_SCENARIO_WALL_S:g} 秒",
+        }
+    return None
 
 
 def _parse_id(value: Any) -> int:
@@ -157,8 +235,11 @@ def _frame_matches(frame: dict, step: dict) -> bool:
     return True
 
 
-def _step_send(manager: SessionManager, step: dict) -> dict:
+def _step_send(manager: SessionManager, step: dict, runtime: ScenarioRuntime) -> dict:
     alias = str(step["device"])
+    err = runtime.note_send(1)
+    if err is not None:
+        return {"ok": False, "error": err}
     frame = CanFrame(
         arbitration_id=_parse_id(step["id"]),
         data=parse_hex(str(step.get("data", ""))),
@@ -174,17 +255,31 @@ def _step_send(manager: SessionManager, step: dict) -> dict:
 
 
 def _step_wait_id(
-    manager: SessionManager, step: dict, variables: dict[str, Any] | None = None
+    manager: SessionManager,
+    step: dict,
+    runtime: ScenarioRuntime,
+    variables: dict[str, Any] | None = None,
 ) -> dict:
     alias = str(step["device"])
     want = _parse_id(step["id"])
-    timeout = float(step.get("timeout", 1.0))
+    timeout, err = _finite_float(
+        "timeout", step.get("timeout", 1.0), minimum=0.0, maximum=MAX_STEP_BLOCK_S
+    )
+    if err is not None or timeout is None:
+        return {"ok": False, "error": err or "timeout 无效"}
     t0 = time.perf_counter()
-    deadline = t0 + timeout
+    deadline = min(t0 + timeout, runtime.deadline)
     last: dict | None = None
     while time.perf_counter() < deadline:
-        remain = max(0.01, deadline - time.perf_counter())
-        result = receive(manager, alias, timeout=min(0.1, remain))
+        if runtime.overdue():
+            return {
+                "ok": False,
+                "elapsed_ms": round((time.perf_counter() - t0) * 1000, 3),
+                "error": f"剧本总时长上限 {MAX_SCENARIO_WALL_S:g} 秒",
+                "result": last,
+            }
+        remain = max(0.01, min(0.1, deadline - time.perf_counter(), runtime.remaining()))
+        result = receive(manager, alias, timeout=remain)
         last = result.to_dict()
         if result.status != "ok":
             return {
@@ -217,6 +312,13 @@ def _step_wait_id(
             "elapsed_ms": round((time.perf_counter() - t0) * 1000, 3),
             "frame": frame,
         }
+    if runtime.overdue():
+        return {
+            "ok": False,
+            "elapsed_ms": round((time.perf_counter() - t0) * 1000, 3),
+            "error": f"剧本总时长上限 {MAX_SCENARIO_WALL_S:g} 秒",
+            "result": last,
+        }
     expect = _norm_hex(step.get("data"))
     extra = f" data={expect}" if expect is not None else ""
     return {
@@ -227,19 +329,32 @@ def _step_wait_id(
     }
 
 
-def _step_wait_n(manager: SessionManager, step: dict) -> dict:
+def _step_wait_n(
+    manager: SessionManager, step: dict, runtime: ScenarioRuntime
+) -> dict:
     alias = str(step["device"])
     need = int(step.get("count", 1))
     if need < 1:
         return {"ok": False, "error": "wait_n.count 必须 >= 1"}
-    timeout = float(step.get("timeout", 1.0))
+    timeout, err = _finite_float(
+        "timeout", step.get("timeout", 1.0), minimum=0.0, maximum=MAX_STEP_BLOCK_S
+    )
+    if err is not None or timeout is None:
+        return {"ok": False, "error": err or "timeout 无效"}
     t0 = time.perf_counter()
-    deadline = t0 + timeout
+    deadline = min(t0 + timeout, runtime.deadline)
     got = 0
     frames: list[dict] = []
     while time.perf_counter() < deadline and got < need:
-        remain = max(0.01, deadline - time.perf_counter())
-        result = receive(manager, alias, timeout=min(0.1, remain))
+        if runtime.overdue():
+            return {
+                "ok": False,
+                "elapsed_ms": round((time.perf_counter() - t0) * 1000, 3),
+                "received": got,
+                "error": f"剧本总时长上限 {MAX_SCENARIO_WALL_S:g} 秒",
+            }
+        remain = max(0.01, min(0.1, deadline - time.perf_counter(), runtime.remaining()))
+        result = receive(manager, alias, timeout=remain)
         if result.status != "ok":
             return {
                 "ok": False,
@@ -251,6 +366,14 @@ def _step_wait_n(manager: SessionManager, step: dict) -> dict:
         if frame is not None and _frame_matches(frame, step):
             got += 1
             frames.append(frame)
+    if runtime.overdue() and got < need:
+        return {
+            "ok": False,
+            "elapsed_ms": round((time.perf_counter() - t0) * 1000, 3),
+            "received": got,
+            "frames": frames,
+            "error": f"剧本总时长上限 {MAX_SCENARIO_WALL_S:g} 秒",
+        }
     ok = got >= need
     return {
         "ok": ok,
@@ -261,16 +384,29 @@ def _step_wait_n(manager: SessionManager, step: dict) -> dict:
     }
 
 
-def _step_drain(manager: SessionManager, step: dict) -> dict:
+def _step_drain(
+    manager: SessionManager, step: dict, runtime: ScenarioRuntime
+) -> dict:
     """排空接收队列；有帧则丢弃，无帧则在超时前结束。"""
     alias = str(step["device"])
-    seconds = float(step.get("seconds", 0.2))
+    seconds, err = _finite_float(
+        "seconds", step.get("seconds", 0.2), minimum=0.0, maximum=MAX_STEP_BLOCK_S
+    )
+    if err is not None or seconds is None:
+        return {"ok": False, "error": err or "seconds 无效"}
     t0 = time.perf_counter()
-    deadline = t0 + max(0.0, seconds)
+    deadline = min(t0 + seconds, runtime.deadline)
     dropped = 0
     while time.perf_counter() < deadline:
-        remain = max(0.01, deadline - time.perf_counter())
-        result = receive(manager, alias, timeout=min(0.05, remain))
+        if runtime.overdue():
+            return {
+                "ok": False,
+                "elapsed_ms": round((time.perf_counter() - t0) * 1000, 3),
+                "dropped": dropped,
+                "error": f"剧本总时长上限 {MAX_SCENARIO_WALL_S:g} 秒",
+            }
+        remain = max(0.01, min(0.05, deadline - time.perf_counter(), runtime.remaining()))
+        result = receive(manager, alias, timeout=remain)
         if result.status != "ok":
             return {
                 "ok": False,
@@ -288,11 +424,16 @@ def _step_drain(manager: SessionManager, step: dict) -> dict:
     }
 
 
-def _step_sleep(step: dict) -> dict:
-    seconds = float(step.get("seconds", 0))
+def _step_sleep(step: dict, runtime: ScenarioRuntime) -> dict:
+    seconds, err = _finite_float(
+        "seconds", step.get("seconds", 0), minimum=0.0, maximum=MAX_STEP_BLOCK_S
+    )
+    if err is not None or seconds is None:
+        return {"ok": False, "error": err or "seconds 无效"}
     t0 = time.perf_counter()
-    if seconds > 0:
-        time.sleep(seconds)
+    failed = _sleep_for(seconds, runtime, t0=t0)
+    if failed is not None:
+        return failed
     return {"ok": True, "elapsed_ms": round((time.perf_counter() - t0) * 1000, 3)}
 
 
@@ -355,7 +496,23 @@ def _step_periodic_start(
                 f"（秒，上限 {MAX_PERIODIC_DURATION_S:g}）"
             ),
         }
-    duration = float(step.get("duration_s", step.get("duration")))
+    duration, err = _finite_float(
+        "duration_s",
+        step.get("duration_s", step.get("duration")),
+        minimum=0.0,
+        maximum=MAX_PERIODIC_DURATION_S,
+        allow_zero=False,
+    )
+    if err is not None or duration is None:
+        return {"ok": False, "error": err or "duration_s 无效"}
+    # duration 必须为正：minimum=0 时 0 会过；用 allow_zero=False 但 minimum=0 仍允许负被挡
+    if duration <= 0:
+        return {"ok": False, "error": "duration_s 必须为正"}
+    period, perr = _finite_float(
+        "period", step["period"], minimum=0.0, allow_zero=False
+    )
+    if perr is not None or period is None or period <= 0:
+        return {"ok": False, "error": perr or "period 必须为正"}
     frame = CanFrame(
         arbitration_id=_parse_id(step["id"]),
         data=parse_hex(str(step.get("data", ""))),
@@ -367,7 +524,7 @@ def _step_periodic_start(
         alias,
         name,
         frame,
-        float(step["period"]),
+        period,
         duration_s=duration,
     )
     if result.status == "ok":
@@ -377,12 +534,12 @@ def _step_periodic_start(
             "elapsed_ms": round((time.perf_counter() - t0) * 1000, 3),
             "result": result.to_dict(),
         }
-    err = result.error.message if result.error else "periodic_start failed"
+    msg = result.error.message if result.error else "periodic_start failed"
     return {
         "ok": False,
         "elapsed_ms": round((time.perf_counter() - t0) * 1000, 3),
         "result": result.to_dict(),
-        "error": err,
+        "error": msg,
     }
 
 
@@ -402,11 +559,17 @@ def _step_periodic_stop(
     }
 
 
-def _step_burst_send(manager: SessionManager, step: dict) -> dict:
+def _step_burst_send(
+    manager: SessionManager, step: dict, runtime: ScenarioRuntime
+) -> dict:
     """连续发送多帧，可选帧间间隔；用于压测入口。"""
     alias = str(step["device"])
     count = int(step.get("count", 1))
-    interval = float(step.get("interval", 0.0))
+    interval, ierr = _finite_float(
+        "interval", step.get("interval", 0.0), minimum=0.0, maximum=MAX_STEP_BLOCK_S
+    )
+    if ierr is not None or interval is None:
+        return {"ok": False, "error": ierr or "interval 无效"}
     if count < 1:
         return {"ok": False, "error": "burst_send.count 必须 >= 1"}
     if count > MAX_BURST_COUNT:
@@ -421,6 +584,21 @@ def _step_burst_send(manager: SessionManager, step: dict) -> dict:
     t0 = time.perf_counter()
     sent = 0
     for i in range(count):
+        if runtime.overdue():
+            return {
+                "ok": False,
+                "elapsed_ms": round((time.perf_counter() - t0) * 1000, 3),
+                "sent": sent,
+                "error": f"剧本总时长上限 {MAX_SCENARIO_WALL_S:g} 秒",
+            }
+        budget_err = runtime.note_send(1)
+        if budget_err is not None:
+            return {
+                "ok": False,
+                "elapsed_ms": round((time.perf_counter() - t0) * 1000, 3),
+                "sent": sent,
+                "error": budget_err,
+            }
         arb = base_id + i if increment else base_id
         result = send(
             manager,
@@ -436,7 +614,10 @@ def _step_burst_send(manager: SessionManager, step: dict) -> dict:
             }
         sent += 1
         if interval > 0 and i + 1 < count:
-            time.sleep(interval)
+            failed = _sleep_for(interval, runtime, t0=t0)
+            if failed is not None:
+                failed["sent"] = sent
+                return failed
     return {
         "ok": True,
         "elapsed_ms": round((time.perf_counter() - t0) * 1000, 3),
@@ -461,6 +642,13 @@ def _step_repeat(
     t0 = time.perf_counter()
     rounds: list[dict] = []
     for i in range(count):
+        if runtime.overdue():
+            return {
+                "ok": False,
+                "elapsed_ms": round((time.perf_counter() - t0) * 1000, 3),
+                "rounds": rounds,
+                "error": f"剧本总时长上限 {MAX_SCENARIO_WALL_S:g} 秒",
+            }
         records, failed_at = _run_child_steps(
             manager,
             child,
@@ -582,18 +770,18 @@ def _dispatch(
             variables[name] = expanded.get("value")
             return {"ok": True, "elapsed_ms": 0.0, "name": name, "value": variables[name]}
         if action == "send":
-            return _step_send(manager, expanded)
+            return _step_send(manager, expanded, runtime)
         if action == "wait_id":
-            return _step_wait_id(manager, expanded, variables)
+            return _step_wait_id(manager, expanded, runtime, variables)
         if action == "wait_n":
-            detail = _step_wait_n(manager, expanded)
+            detail = _step_wait_n(manager, expanded, runtime)
             if detail.get("ok") and variables is not None and detail.get("frames"):
                 _apply_store(expanded, detail["frames"][-1], variables)
             return detail
         if action == "drain":
-            return _step_drain(manager, expanded)
+            return _step_drain(manager, expanded, runtime)
         if action == "sleep":
-            return _step_sleep(expanded)
+            return _step_sleep(expanded, runtime)
         if action == "filter":
             return _step_filter(manager, expanded)
         if action == "accept_all":
@@ -607,7 +795,7 @@ def _dispatch(
         if action == "periodic_stop":
             return _step_periodic_stop(manager, expanded, runtime)
         if action == "burst_send":
-            return _step_burst_send(manager, expanded)
+            return _step_burst_send(manager, expanded, runtime)
         if action == "repeat":
             return _step_repeat(
                 manager,
@@ -666,6 +854,7 @@ def run_scenario(
     """按顺序执行步骤。默认遇错停止；``data.steps`` 含每步耗时与结果。
 
     结束时（含失败与异常）会停止本剧本仍登记的周期发送任务。
+    总墙钟超时不会返回成功。
     """
     if not steps:
         return Result.err(ErrorCode.INVALID_ARGUMENT, "剧本没有步骤")
@@ -695,6 +884,7 @@ def run_scenario(
     finally:
         cleaned = runtime.cleanup_periodics(manager)
 
+    overdue = runtime.overdue()
     payload = {
         "steps": records,
         "failed_at": failed_at,
@@ -705,7 +895,11 @@ def run_scenario(
             "steps_run": runtime.steps_run,
             "max_steps": MAX_SCENARIO_STEPS,
             "max_wall_s": MAX_SCENARIO_WALL_S,
+            "max_step_block_s": MAX_STEP_BLOCK_S,
+            "send_frames": runtime.send_frames,
+            "max_send_frames": MAX_SCENARIO_SEND_FRAMES,
             "elapsed_s": round(time.perf_counter() - runtime.started_at, 3),
+            "overdue": overdue,
         },
     }
     if crash is not None:
@@ -714,6 +908,12 @@ def run_scenario(
         return Result.err(
             ErrorCode.INTERNAL_ERROR,
             f"剧本异常: {type(crash).__name__}: {crash}",
+            data=payload,
+        )
+    if overdue and failed_at is None:
+        return Result.err(
+            ErrorCode.INTERNAL_ERROR,
+            f"剧本总时长上限 {MAX_SCENARIO_WALL_S:g} 秒",
             data=payload,
         )
     if failed_at is not None:

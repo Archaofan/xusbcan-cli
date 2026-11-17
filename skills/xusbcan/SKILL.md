@@ -5,7 +5,7 @@ license: MIT
 compatibility: Python 3.11+. Drivers depend on the backend named in the config. Read a model reference only when that model is the one configured.
 metadata:
   author: xusbcan-cli
-  version: "1.6"
+  version: "1.7"
 ---
 
 # xusbcan
