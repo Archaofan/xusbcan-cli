@@ -27,7 +27,10 @@ xusbcan scenario --file steps.json
 
 Extended frame: add `--ext`. Each command prints one JSON object and exits. `periodic` holds the device only for `--duration`.
 
-`scenario` runs millisecond steps in one process (`open` / `send` / `wait_id` / `filter` / `accept_all` / `sleep` / `periodic_*` / `close`). Example:
+`scenario` / MCP `run_scenario` run millisecond steps in one process:
+`open` `send` `wait_id` `wait_n` `drain` `burst_send` `filter` `accept_all` `sleep` `repeat` `try` `periodic_*` `close`.
+
+Example:
 
 ```json
 {

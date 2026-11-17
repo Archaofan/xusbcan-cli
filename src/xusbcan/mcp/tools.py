@@ -7,6 +7,7 @@ import json
 from .. import core
 from ..models.frame import CanFrame
 from ..models.result import ErrorCode, Result
+from ..scenario import run_scenario as execute_scenario
 
 
 def _json(result: Result) -> str:
@@ -102,3 +103,23 @@ def register_tools(mcp, manager: core.SessionManager) -> None:
     def accept_all_frames(device: str) -> str:
         """恢复接收全部帧。设置过滤波后若要重新全收，调用本工具而不是只清空滤波表。"""
         return _json(core.accept_all_frames(manager, device))
+
+    @mcp.tool()
+    def run_scenario(steps_json: str) -> str:
+        """执行毫秒级报文剧本。steps_json 为 steps 数组或含 steps 的对象的 JSON 字符串。
+        支持 open/send/wait_id/wait_n/drain/filter/accept_all/sleep/repeat/try/
+        burst_send/periodic_start/periodic_stop/close。返回逐步耗时 JSON。
+        """
+        try:
+            payload = json.loads(steps_json)
+        except json.JSONDecodeError as e:
+            return _json(Result.err(ErrorCode.INVALID_ARGUMENT, f"steps_json 无效: {e}"))
+        if isinstance(payload, list):
+            steps = payload
+        elif isinstance(payload, dict) and isinstance(payload.get("steps"), list):
+            steps = payload["steps"]
+        else:
+            return _json(
+                Result.err(ErrorCode.INVALID_ARGUMENT, "需要 steps 数组或含 steps 的对象")
+            )
+        return _json(execute_scenario(manager, steps))

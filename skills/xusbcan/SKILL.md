@@ -41,7 +41,7 @@ When not to use: changing product firmware, or editing ignored local design note
 |------|-----|
 | One command, then exit | CLI: `list` `send` `receive` `monitor` `status` `periodic` |
 | Millisecond send→wait→send script | CLI: `scenario --file`, or `xusbcan.scenario.run_scenario` |
-| Agent tools, session, periodic | MCP: `open_device`, `send_frame`, `receive_frame`, `monitor`, `periodic_start` / `periodic_stop` / `periodic_list`, `set_frame_filter`, `accept_all_frames`, `close_device` |
+| Agent tools, session, periodic, scenario | MCP: `open_device`, `send_frame`, `receive_frame`, `monitor`, `periodic_start` / `periodic_stop` / `periodic_list`, `set_frame_filter`, `accept_all_frames`, `run_scenario`, `close_device` |
 | Hours-long send/receive with no agent | One Python process holding `can.Bus` or a core session |
 
 `receive` and `monitor` take `--from-id` and `--to-id` for one range. `set_frame_filter` does the same on an open session. `accept_all_frames` restores full reception. `periodic` runs until `--duration` elapses. MCP `periodic_start` keeps the task until `periodic_stop`.
