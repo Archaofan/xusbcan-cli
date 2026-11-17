@@ -57,11 +57,30 @@ def _expand_step(step: dict, variables: dict[str, Any]) -> dict:
     """展开步骤字段；嵌套 steps 留给子执行再展开，避免过早固化。"""
     out: dict[str, Any] = {}
     for key, value in step.items():
-        if key in {"steps", "on_fail", "on_ok"}:
+        if key in {"steps", "on_fail", "on_ok", "store"}:
             out[key] = value
         else:
             out[key] = _expand_value(value, variables)
     return out
+
+
+def _apply_store(step: dict, frame: dict, variables: dict[str, Any]) -> None:
+    """把帧字段写入变量。store: {var_name: id|data|dlc|ext}。"""
+    mapping = step.get("store")
+    if not isinstance(mapping, dict) or not frame:
+        return
+    for var_name, field in mapping.items():
+        key = str(field)
+        if key == "id":
+            variables[str(var_name)] = f"0x{int(frame['arbitration_id']):X}"
+        elif key == "data":
+            variables[str(var_name)] = str(frame.get("data", ""))
+        elif key == "dlc":
+            variables[str(var_name)] = int(frame.get("dlc") or 0)
+        elif key in {"ext", "is_extended"}:
+            variables[str(var_name)] = bool(frame.get("is_extended"))
+        else:
+            raise KeyError(f"store 不支持字段: {key}")
 
 
 def _norm_hex(value: str | bytes | None) -> str | None:
@@ -100,7 +119,9 @@ def _step_send(manager: SessionManager, step: dict) -> dict:
     }
 
 
-def _step_wait_id(manager: SessionManager, step: dict) -> dict:
+def _step_wait_id(
+    manager: SessionManager, step: dict, variables: dict[str, Any] | None = None
+) -> dict:
     alias = str(step["device"])
     want = _parse_id(step["id"])
     timeout = float(step.get("timeout", 1.0))
@@ -135,6 +156,8 @@ def _step_wait_id(manager: SessionManager, step: dict) -> dict:
                     f"got {frame.get('data')} expect {expect}"
                 ),
             }
+        if variables is not None:
+            _apply_store(step, frame, variables)
         return {
             "ok": True,
             "elapsed_ms": round((time.perf_counter() - t0) * 1000, 3),
@@ -449,9 +472,12 @@ def _dispatch(
         if action == "send":
             return _step_send(manager, expanded)
         if action == "wait_id":
-            return _step_wait_id(manager, expanded)
+            return _step_wait_id(manager, expanded, variables)
         if action == "wait_n":
-            return _step_wait_n(manager, expanded)
+            detail = _step_wait_n(manager, expanded)
+            if detail.get("ok") and variables is not None and detail.get("frames"):
+                _apply_store(expanded, detail["frames"][-1], variables)
+            return detail
         if action == "drain":
             return _step_drain(manager, expanded)
         if action == "sleep":
