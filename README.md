@@ -123,9 +123,10 @@ xusbcan monitor bus0 --duration 5
 xusbcan status bus0
 xusbcan receive bus0 --timeout 1 --from-id 0x100 --to-id 0x1FF
 xusbcan periodic bus0 --name hb --id 0x123 --data "01" --period 0.1 --duration 5
+xusbcan scenario --file steps.json
 ```
 
-`periodic` 在本进程内发完指定时长后停止。滤波命令对各后端相同。要跨多次命令保持会话，用 MCP。
+`periodic` 在本进程内发完指定时长后停止。`scenario` 按 JSON 步骤做发→等→再发等编排（同进程会话）。滤波命令对各后端相同。要跨多次命令保持会话，也可用 MCP。
 
 连接 MCP 后，Agent 用 `send_frame`、`receive_frame`、`monitor`、`periodic_start` 等工具操作同一别名。
 

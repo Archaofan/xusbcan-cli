@@ -1,6 +1,7 @@
 """CLI：argparse 命令定义，薄封装 core。
 
-一次性命令：list / send / receive / monitor / status（每次调用自己 open → 操作 → close）。
+一次性命令：list / send / receive / monitor / status / periodic；
+scenario 按 JSON 步骤在同一进程编排（可含 open/close），适合毫秒级发→等→再发。
 stdout 只放一个 JSON 对象（Result）；日志/诊断走 stderr。
 """
 
@@ -27,6 +28,7 @@ from ..core import (
 )
 from ..models.frame import CanFrame
 from ..models.result import ErrorCode, Result
+from ..scenario import run_scenario
 
 
 def _add_filter_args(parser: argparse.ArgumentParser) -> None:
@@ -58,6 +60,9 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("list", help="列出设备（只读配置与会话表）")
+
+    p = sub.add_parser("scenario", help="执行毫秒级报文剧本（JSON 步骤文件）")
+    p.add_argument("--file", required=True, help="剧本 JSON 路径（含 steps 数组）")
 
     p = sub.add_parser("send", help="发送一帧 CAN 报文")
     p.add_argument("alias", help="设备逻辑别名")
@@ -132,7 +137,30 @@ def dispatch(args: argparse.Namespace) -> Result:
         return _periodic_for(mgr, args)
     if cmd == "status":
         return status(mgr, args.alias)
+    if cmd == "scenario":
+        return _scenario_for(mgr, args.file)
     return Result.err(ErrorCode.INVALID_ARGUMENT, f"未知命令: {cmd}")
+
+
+def _scenario_for(mgr: SessionManager, path: str) -> Result:
+    try:
+        with open(path, encoding="utf-8") as f:
+            payload = json.load(f)
+    except OSError as e:
+        return Result.err(ErrorCode.CONFIG_ERROR, f"无法读取剧本: {e}")
+    except json.JSONDecodeError as e:
+        return Result.err(ErrorCode.INVALID_ARGUMENT, f"剧本 JSON 无效: {e}")
+    if isinstance(payload, list):
+        steps = payload
+    elif isinstance(payload, dict) and isinstance(payload.get("steps"), list):
+        steps = payload["steps"]
+    else:
+        return Result.err(ErrorCode.INVALID_ARGUMENT, "剧本需为 steps 数组或含 steps 的对象")
+    try:
+        return run_scenario(mgr, steps)
+    finally:
+        mgr.close_all()
+
 
 
 def _periodic_for(mgr: SessionManager, args: argparse.Namespace) -> Result:

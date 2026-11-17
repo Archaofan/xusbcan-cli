@@ -5,7 +5,7 @@ license: MIT
 compatibility: Python 3.11+. Drivers depend on the backend named in the config. Read a model reference only when that model is the one configured.
 metadata:
   author: xusbcan-cli
-  version: "1.2"
+  version: "1.3"
 ---
 
 # xusbcan
@@ -40,6 +40,7 @@ When not to use: changing product firmware, or editing ignored local design note
 | Need | Use |
 |------|-----|
 | One command, then exit | CLI: `list` `send` `receive` `monitor` `status` `periodic` |
+| Millisecond send→wait→send script | CLI: `scenario --file`, or `xusbcan.scenario.run_scenario` |
 | Agent tools, session, periodic | MCP: `open_device`, `send_frame`, `receive_frame`, `monitor`, `periodic_start` / `periodic_stop` / `periodic_list`, `set_frame_filter`, `accept_all_frames`, `close_device` |
 | Hours-long send/receive with no agent | One Python process holding `can.Bus` or a core session |
 

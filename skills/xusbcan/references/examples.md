@@ -22,9 +22,23 @@ xusbcan receive bus0 --timeout 1 --from-id 0x100 --to-id 0x1FF
 xusbcan monitor bus0 --duration 2 --max-frames 50
 xusbcan periodic bus0 --name hb --id 0x123 --data "01" --period 0.1 --duration 5
 xusbcan status bus0
+xusbcan scenario --file steps.json
 ```
 
 Extended frame: add `--ext`. Each command prints one JSON object and exits. `periodic` holds the device only for `--duration`.
+
+`scenario` runs millisecond steps in one process (`open` / `send` / `wait_id` / `filter` / `accept_all` / `sleep` / `periodic_*` / `close`). Example:
+
+```json
+{
+  "steps": [
+    {"action": "open", "device": "bus0"},
+    {"action": "send", "device": "bus0", "id": "0x321", "data": "01 02"},
+    {"action": "wait_id", "device": "bus0", "id": "0x321", "timeout": 1.0},
+    {"action": "close", "device": "bus0"}
+  ]
+}
+```
 
 ## MCP tools
 
