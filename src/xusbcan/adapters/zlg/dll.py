@@ -28,7 +28,10 @@ VOID_P = ctypes.c_void_p
 # ---- 常量 ----
 ZCAN_USBCAN_2E_U = 21
 TYPE_CAN = 0
+STATUS_ERR = 0
 STATUS_OK = 1
+STATUS_ONLINE = 2  # ZCAN_IsDeviceOnLine 在线
+STATUS_OFFLINE = 3  # ZCAN_IsDeviceOnLine 离线
 INVALID_HANDLE = 0
 DLL_FILENAME = "zlgcan.dll"
 SDK_ENV_VAR = "ZLG_SDK_DIR"
@@ -78,6 +81,49 @@ class ZCAN_Receive_Data(ctypes.Structure):
     _fields_ = [
         ("frame", can_frame),
         ("timestamp", UINT64),
+    ]
+
+
+class ZCAN_AUTO_TRANSMIT_OBJ(ctypes.Structure):
+    """硬件定时发送对象（2E 卡每通道最多 32 条）。interval 单位 ms。"""
+
+    _fields_ = [
+        ("enable", USHORT),  # 1=使能
+        ("index", USHORT),  # 定时发送列表索引 0..n
+        ("interval", UINT),  # 周期（ms）
+        ("obj", ZCAN_Transmit_Data),
+    ]
+
+
+class ZCAN_DEVICE_INFO(ctypes.Structure):
+    """设备基本信息（ZCAN_GetDeviceInf 填充）。"""
+
+    _fields_ = [
+        ("hw_Version", USHORT),
+        ("fw_Version", USHORT),
+        ("dr_Version", USHORT),
+        ("in_Version", USHORT),
+        ("irq_Num", USHORT),
+        ("can_Num", BYTE),
+        ("str_Serial_Num", ctypes.c_ubyte * 20),
+        ("str_hw_Type", ctypes.c_ubyte * 40),
+        ("reserved", USHORT * 4),
+    ]
+
+
+class ZCAN_CHANNEL_STATUS(ctypes.Structure):
+    """通道状态（ZCAN_ReadChannelStatus 填充，可用于 BUS_OFF 检测）。"""
+
+    _fields_ = [
+        ("errInterrupt", BYTE),
+        ("regMode", BYTE),
+        ("regStatus", BYTE),
+        ("regALCapture", BYTE),
+        ("regECCapture", BYTE),
+        ("regEWLimit", BYTE),
+        ("regRECounter", BYTE),
+        ("regTECounter", BYTE),
+        ("Reserved", UINT),
     ]
 
 
@@ -178,6 +224,24 @@ def _load_dll():
 
     dll.ZCAN_GetReceiveNum.restype = UINT
     dll.ZCAN_GetReceiveNum.argtypes = [VOID_P, BYTE]
+
+    dll.ZCAN_GetDeviceInf.restype = UINT
+    dll.ZCAN_GetDeviceInf.argtypes = [VOID_P, ctypes.POINTER(ZCAN_DEVICE_INFO)]
+
+    dll.ZCAN_ReadChannelStatus.restype = UINT
+    dll.ZCAN_ReadChannelStatus.argtypes = [VOID_P, ctypes.POINTER(ZCAN_CHANNEL_STATUS)]
+
+    dll.ZCAN_ClearBuffer.restype = UINT
+    dll.ZCAN_ClearBuffer.argtypes = [VOID_P]
+
+    dll.ZCAN_ResetCAN.restype = UINT
+    dll.ZCAN_ResetCAN.argtypes = [VOID_P]
+
+    dll.ZCAN_GetValue.restype = VOID_P
+    dll.ZCAN_GetValue.argtypes = [VOID_P, ctypes.c_char_p]
+
+    dll.ZCAN_IsDeviceOnLine.restype = UINT
+    dll.ZCAN_IsDeviceOnLine.argtypes = [VOID_P]
 
     return dll
 

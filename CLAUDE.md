@@ -1,29 +1,30 @@
 # CLAUDE.md（xusbcan-cli 项目规则）
 
-面向 AI Agent 的 CAN 总线调试工具（Python + python-can + CLI + MCP）。
+面向二次开发与 AI Agent 的**公开**约定。真机验证、架构细节、本机脚本只在本地 `docs/` / `scripts/`（不进 git）。
 
-## 隐私与开源管理规则（硬约束，最高优先级）
+Cursor 另有始终生效规则：`.cursor/rules/privacy-git.mdc`（与本节一致，提交前必遵）。
 
-1. **`docs/` 与 `scripts/` 不进 git**：`docs/`（架构方案、评审记录）与 `scripts/`（真机验证脚本，含本机绝对路径）是内部产物，**禁止提交到 git**，已加入 `.gitignore`。内部文件只留在本地。
-2. **README 只写「使用方式 + 目标展望 + 参与号召」**：README 面向外部（将来开源公开），禁止出现架构分层、内部实现、厂商 SDK 封装细节、设计决策、评审结论等内容。
-3. **git 按开源公开标准管理**：提交内容、commit message、代码注释都要经得起公开审查——不得出现本机绝对路径（如 `D:\...`）、真实客户/项目/ECU 名称、内部 IP、账号、密钥、令牌。
-4. **厂商 SDK 二进制不进仓库**：如 `zlgcan.dll` 等由用户自取；第三方许可证原文放 `third_party/NOTICES`。
-5. **提交前隐私自查**：每次 `git add` 前，检查 diff 是否含敏感信息（绝对路径、真实客户名、密钥等）。
+## 隐私与开源管理（硬约束）
 
-## 技术约定
+1. **`docs/` 与 `scripts/` 不进 git**：内部架构/评审与真机脚本（可含本机路径）仅留本地；禁止 `git add -f` 强行加入。
+2. **README 只写「使用方式 + 目标展望 + 参与号召」**：禁止架构分层、厂商 SDK 封装细节、设计决策等。
+3. **提交须可公开审查**：无本机绝对路径、真实客户/项目/ECU 名、内部 IP、账号、密钥、令牌。
+4. **厂商 SDK 二进制不进仓库**：用户自备；许可证原文放 `third_party/NOTICES`。
+5. **未要求勿提交**；`git add` 前自查 diff / status。
 
-- 核心运行时依赖仅 `python-can`；MCP 依赖走 `[mcp]` optional extra。
-- 厂商差异隔离在 `src/xusbcan/adapters/`，core / cli / mcp 不得出现厂商概念。
-- 输出契约：`Result`（`error.code` 枚举化）+ `CanFrame` 序列化契约（`data` 为小写十六进制、`channel` 不进 JSON）。
-- 测试：pytest（用 `virtual` 后端 + 注入假适配器），无硬件可全部跑通。
-- 真机验证相关脚本放 `scripts/`，不混入正式包。
+## 二次开发约定
 
-## 常用命令
+- 核心运行时依赖仅 `python-can`；MCP 走 `[mcp]` optional extra。
+- 厂商差异只在 `src/xusbcan/adapters/`；core / cli / mcp 不出现厂商概念。
+- 输出：`Result`（`error.code` 枚举）+ `CanFrame`（`data` 小写十六进制，`channel` 不进 JSON）。
+- 无硬件测试：`pytest`（`virtual` + 假适配器）须全绿。
+
+## 常用命令（公开）
 
 ```bash
-python -m pytest tests/ -q          # 跑全部测试（无硬件）
-python -m ruff check src tests      # lint
-python -m mypy src/xusbcan          # 类型检查
-python -m xusbcan.cli list          # CLI 冒烟
-python tests/test_mcp_stdio.py      # MCP stdio 端到端
+python -m pytest tests/ -q
+python -m ruff check src tests
+python -m mypy src/xusbcan
+python -m xusbcan.cli list
+python tests/test_mcp_stdio.py
 ```

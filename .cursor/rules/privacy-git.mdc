@@ -1,0 +1,32 @@
+---
+description: 开源隐私与 git 边界——禁止把内部文档/真机脚本/敏感信息提交进仓库
+alwaysApply: true
+---
+
+# 隐私与 git 边界（硬约束）
+
+本仓库按**可公开开源**标准管理。Agent 每次改动、写文档、`git add`/`commit` 前必须自查。
+
+## 永不提交
+
+- `docs/`、`scripts/`（已在 `.gitignore`）——架构、评审、真机脚本、本机路径只留本地
+- 厂商 SDK 二进制（`*.dll`、`kerneldlls/` 等）
+- 本机绝对路径、真实客户/项目/ECU 名、内部 IP、账号、密钥、令牌
+
+## 写哪里
+
+| 内容 | 位置 |
+|------|------|
+| 用法 / 展望 / 参与 | `README.md`（禁止架构与 SDK 封装细节） |
+| 二次开发公开约定 | `CLAUDE.md` |
+| 架构、真机结论、禁测、本地脚本说明 | 本地 `docs/`（不进 git） |
+| 真机验证脚本 | 本地 `scripts/`（不进 git） |
+
+## 提交前
+
+- 未明确要求时**不要**主动 `git commit`
+- `git add` 前看 `git status` / `git diff`：不得出现上述敏感或被 ignore 却被强制加入的文件
+- 勿用 `git add -f` 强行加入 `docs/`、`scripts/`、DLL
+- 注释与 commit message 同样按可公开标准写
+
+本地真机与禁测细节：读 `docs/architecture.md` §14（若存在）；勿把这些细节抄进将提交的 README / 源码注释。

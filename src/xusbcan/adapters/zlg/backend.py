@@ -29,6 +29,7 @@ from .dll import (
     INVALID_HANDLE,
     STATUS_OK,
     TYPE_CAN,
+    ZCAN_AUTO_TRANSMIT_OBJ,
     ZCAN_USBCAN_2E_U,
     ZCAN_Receive_Data,
     ZCAN_Transmit_Data,
@@ -160,6 +161,58 @@ class ZlgBus(BusABC):
         if sent != 1:
             raise can.CanOperationError(
                 f"ZCAN_Transmit 发送失败，成功帧数 {sent}（期望 1）"
+            )
+
+    # ---- 硬件定时发送 ----
+    def start_auto_send(self, msg: Message, interval_ms: int, index: int = 0) -> None:
+        """启动硬件定时发送（2E 卡每通道最多 32 条，interval 单位 ms）。
+
+        注意：2E 卡开启硬件定时发送后，不能再调用普通 send()（ZCAN_Transmit）。
+        """
+        if msg.is_fd:
+            raise ZlgCapabilityUnsupportedError("USBCAN-2E-U 不支持 CAN FD")
+
+        data = bytes(msg.data) if msg.data is not None else b""
+        dlc = int(msg.dlc or 0) if msg.is_remote_frame else len(data)
+        if dlc > 8:
+            raise can.CanOperationError(f"经典 CAN 数据长度 {dlc} 超过 8 字节")
+
+        can_id = msg.arbitration_id & 0x1FFFFFFF
+        if msg.is_extended_id:
+            can_id |= 0x80000000
+        if msg.is_remote_frame:
+            can_id |= 0x40000000
+
+        obj = ZCAN_AUTO_TRANSMIT_OBJ()
+        obj.enable = 1
+        obj.index = index
+        obj.interval = interval_ms
+        obj.obj.frame.can_id = can_id
+        obj.obj.frame.can_dlc = dlc
+        for i, b in enumerate(data[:8]):
+            obj.obj.frame.data[i] = b
+        obj.obj.transmit_type = 0
+
+        # SetValue 的 value 是 const void*，这里传结构体指针（cast 成 char*）
+        ptr = ctypes.cast(ctypes.pointer(obj), ctypes.c_char_p)
+        with self._entry.lock:
+            ok = self._dll.ZCAN_SetValue(
+                self._entry.handle, f"{self._channel}/auto_send".encode("ascii"), ptr
+            )
+        if ok != STATUS_OK:
+            raise can.CanOperationError(f"ZCAN_SetValue(auto_send) 失败，返回 {ok}")
+
+    def stop_auto_send(self) -> None:
+        """清除本通道的硬件定时发送。"""
+        with self._entry.lock:
+            ok = self._dll.ZCAN_SetValue(
+                self._entry.handle,
+                f"{self._channel}/clear_auto_send".encode("ascii"),
+                b"0",
+            )
+        if ok != STATUS_OK:
+            raise can.CanOperationError(
+                f"ZCAN_SetValue(clear_auto_send) 失败，返回 {ok}"
             )
 
     # ---- 接收 ----
