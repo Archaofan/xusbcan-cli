@@ -55,7 +55,7 @@ Typical order for a session:
 1. `list_devices`
 2. `open_device` with the alias
 3. `send_frame` / `receive_frame` / `monitor`
-4. `periodic_start` with `period_s` in seconds, then `periodic_stop`
+4. `periodic_start` with `period_s` and required `duration_s` (seconds, max 300); it auto-stops, or call `periodic_stop` earlier
 5. `set_frame_filter` to keep one ID range, then `accept_all_frames` before `close_device` if the bus should receive everything again
 6. `close_device`
 
@@ -64,6 +64,8 @@ HTTP MCP, when enabled in config, listens on `127.0.0.1` only. Do not point it a
 `receive_frame` with no traffic returns `status=ok` and a null frame when `timeout` elapses.
 
 `monitor` is bounded (`duration_s` at most 30 seconds). It is not a streaming log.
+
+`periodic_start` is also bounded: pass `duration_s` (required, at most 300 seconds). Longer transmit jobs belong in a local resident process, not an unbounded MCP task.
 
 ## python-can (resident)
 

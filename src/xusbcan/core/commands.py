@@ -250,12 +250,17 @@ def _require_open(manager: SessionManager, alias: str) -> tuple[Session | None, 
 
 
 def periodic_start(
-    manager: SessionManager, alias: str, name: str, frame: CanFrame, period: float
+    manager: SessionManager,
+    alias: str,
+    name: str,
+    frame: CanFrame,
+    period: float,
+    duration_s: float | None = None,
 ) -> Result:
     session, err = _require_open(manager, alias)
     if err is not None:
         return err
-    return periodic_mod.start(session, name, frame, period)
+    return periodic_mod.start(session, name, frame, period, duration_s=duration_s)
 
 
 def periodic_stop(manager: SessionManager, alias: str, name: str) -> Result:

@@ -127,7 +127,7 @@ xusbcan scenario --dir scenarios/
 
 `periodic` transmits for `--duration` seconds in this process, then stops. `scenario` runs millisecond send→wait→send steps in one process; `--dir` runs every `*.json` in that folder in name order. Filter commands are the same for every backend. Use MCP when the session must stay open across calls.
 
-After the MCP server is connected, the agent uses `send_frame`, `receive_frame`, `monitor`, `periodic_start`, and the other tools on the same alias.
+After the MCP server is connected, the agent uses `send_frame`, `receive_frame`, `monitor`, `periodic_start`, and the other tools on the same alias. MCP `periodic_start` **requires** `duration_s` (max 300 seconds) and stops when it elapses; for longer transmit jobs use a local resident process with an explicitly authorized bench setup.
 
 ## Agent skill
 

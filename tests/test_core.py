@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import time
+
 import can
 import pytest
 
@@ -107,6 +109,27 @@ def test_periodic_lifecycle():
     assert len(periodic_list(mgr, "can0").data["tasks"]) == 1
     assert periodic_stop(mgr, "can0", "p1").status == "ok"
     assert len(periodic_list(mgr, "can0").data["tasks"]) == 0
+
+
+def test_periodic_duration_auto_stops():
+    from xusbcan.core.periodic import MAX_PERIODIC_DURATION_S
+
+    mgr = _virtual_manager()
+    mgr.open("can0")
+    f = CanFrame(arbitration_id=0x123, data=b"\x01")
+    r = periodic_start(mgr, "can0", "p1", f, 0.05, duration_s=0.2)
+    assert r.status == "ok"
+    assert r.data["duration_s"] == 0.2
+    assert len(periodic_list(mgr, "can0").data["tasks"]) == 1
+    time.sleep(0.45)
+    assert len(periodic_list(mgr, "can0").data["tasks"]) == 0
+
+    over = periodic_start(
+        mgr, "can0", "p2", f, 0.1, duration_s=MAX_PERIODIC_DURATION_S + 1
+    )
+    assert over.status == "error"
+    assert over.error is not None
+    assert over.error.code == "INVALID_ARGUMENT"
 
 
 class _FailingBus(can.BusABC):

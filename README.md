@@ -129,7 +129,7 @@ xusbcan scenario --dir scenarios/
 
 `periodic` 在本进程内发完指定时长后停止。`scenario` 按 JSON 步骤做发→等→再发等编排（同进程会话）；`--dir` 按文件名排序批跑目录内全部 `*.json`。滤波命令对各后端相同。要跨多次命令保持会话，也可用 MCP。
 
-连接 MCP 后，Agent 用 `send_frame`、`receive_frame`、`monitor`、`periodic_start` 等工具操作同一别名。
+连接 MCP 后，Agent 用 `send_frame`、`receive_frame`、`monitor`、`periodic_start` 等工具操作同一别名。MCP 的 `periodic_start` **必须**提供 `duration_s`（上限 300 秒），到点自动停止；需要更长发送请用本机常驻进程，并由使用者明确授权操作环境。
 
 ## 面向 Agent 的 Skill
 

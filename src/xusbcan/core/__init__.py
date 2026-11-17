@@ -24,7 +24,7 @@ from .commands import (
     transmit,
 )
 from .monitor import Monitor
-from .periodic import PeriodicTask
+from .periodic import MAX_PERIODIC_DURATION_S, PeriodicTask
 from .session import CLOSE_TIMEOUT_S, Session, SessionManager, SessionState
 
 __all__ = [
@@ -34,6 +34,7 @@ __all__ = [
     "CLOSE_TIMEOUT_S",
     "map_error",
     "PeriodicTask",
+    "MAX_PERIODIC_DURATION_S",
     "Monitor",
     "transmit",
     "receive_frame",

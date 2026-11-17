@@ -67,10 +67,13 @@ def register_tools(mcp, manager: core.SessionManager) -> None:
         arbitration_id: int,
         data: str,
         period_s: float,
+        duration_s: float,
         is_extended: bool = False,
     ) -> str:
-        """启动周期发送。name 为任务名；period_s 为周期（秒）。
+        """启动有界周期发送。name 为任务名；period_s 为周期（秒）；
+        duration_s 为持续秒数（必填，上限 300）。到点自动停止；也可提前 periodic_stop。
         支持硬件定时发送的适配器会走硬件周期，期间普通 send_frame 会失败，需先 periodic_stop。
+        更长台架任务请用本机常驻进程，勿依赖 MCP 无限发送。
         """
         try:
             frame = CanFrame(
@@ -80,7 +83,11 @@ def register_tools(mcp, manager: core.SessionManager) -> None:
             )
         except ValueError as e:
             return _json(Result.err(ErrorCode.INVALID_ARGUMENT, str(e)))
-        return _json(core.periodic_start(manager, device, name, frame, period_s))
+        return _json(
+            core.periodic_start(
+                manager, device, name, frame, period_s, duration_s=duration_s
+            )
+        )
 
     @mcp.tool()
     def periodic_stop(device: str, name: str) -> str:
