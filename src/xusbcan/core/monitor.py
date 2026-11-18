@@ -168,11 +168,17 @@ def start_monitor(
 
 
 def stop_monitor(session) -> Result:
+    """停止监听。join 超时则保留 Monitor 引用与接收所有权，返回 CLOSE_TIMEOUT。"""
     monitor = session.monitor
     if monitor is None:
         return Result.err(ErrorCode.SESSION_NOT_FOUND, "没有正在运行的监听")
     monitor.stop()
-    monitor.join(timeout=CLOSE_TIMEOUT_S)
+    if not monitor.join(timeout=CLOSE_TIMEOUT_S):
+        return Result.err(
+            ErrorCode.CLOSE_TIMEOUT,
+            f"停止监听超时: {session.name}",
+            context={"alias": session.name},
+        )
     session.clear_monitor(monitor)
     session.release_receive("monitor")
     return monitor.to_result()

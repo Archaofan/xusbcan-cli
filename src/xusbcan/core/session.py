@@ -11,6 +11,7 @@ adapters.zlg）。
 from __future__ import annotations
 
 import threading
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -71,8 +72,12 @@ class Session:
     receive_owner: str | None = None  # "monitor"（有界采集运行时占用）
     periodic: dict[str, Any] = field(default_factory=dict)  # name -> PeriodicTask
     _periodic_reserved: set[str] = field(default_factory=set, repr=False)
+    _closing: bool = field(default=False, repr=False)
     monitor: Any | None = None  # 运行中的 Monitor
     _lock: threading.RLock = field(default_factory=threading.RLock, repr=False)
+
+    def _accepts_periodic(self) -> bool:
+        return self.state is SessionState.OPEN and not self._closing
 
     # ---- 接收所有者（core 内部，供 monitor.py / commands.py 使用）----
 
@@ -105,14 +110,22 @@ class Session:
     def add_periodic(self, name: str, task: Any) -> bool:
         """登记一条周期任务；名字已存在返回 False。"""
         with self._lock:
+            if not self._accepts_periodic():
+                return False
             if name in self.periodic or name in self._periodic_reserved:
                 return False
             self.periodic[name] = task
             return True
 
     def reserve_periodic(self, name: str, *, max_tasks: int) -> Result:
-        """原子预留名称与容量（启动底层任务前调用）。"""
+        """原子预留名称与容量（启动底层任务前调用）。非 OPEN / 正在关闭时拒绝。"""
         with self._lock:
+            if not self._accepts_periodic():
+                return Result.err(
+                    ErrorCode.DEVICE_NOT_OPEN,
+                    f"会话不可启动周期任务: {self.name}",
+                    context={"alias": self.name, "state": self.state.value},
+                )
             if name in self.periodic or name in self._periodic_reserved:
                 return Result.err(
                     ErrorCode.INVALID_ARGUMENT,
@@ -130,9 +143,12 @@ class Session:
             return Result.ok({"name": name, "reserved": True})
 
     def commit_periodic(self, name: str, task: Any) -> bool:
-        """把预留位换成真实任务。"""
+        """把预留位换成真实任务。关闭中或非 OPEN 时丢弃预留并返回 False。"""
         with self._lock:
             if name not in self._periodic_reserved:
+                return False
+            if not self._accepts_periodic():
+                self._periodic_reserved.discard(name)
                 return False
             self._periodic_reserved.discard(name)
             self.periodic[name] = task
@@ -162,16 +178,41 @@ class Session:
         with self._lock:
             return list(self.periodic.values())
 
+    def _wait_periodic_reserves_clear(self) -> Result | None:
+        """关闭过程中等待在飞预留结束；超时则进入 ERROR 并返回错误 Result。"""
+        deadline = time.monotonic() + CLOSE_TIMEOUT_S
+        while True:
+            with self._lock:
+                if not self._periodic_reserved:
+                    return None
+                pending = sorted(self._periodic_reserved)
+            if time.monotonic() >= deadline:
+                with self._lock:
+                    self.state = SessionState.ERROR
+                return Result.err(
+                    ErrorCode.CLOSE_TIMEOUT,
+                    f"关闭时周期任务预留未完成: {self.name}",
+                    context={"alias": self.name, "reserved": pending},
+                )
+            time.sleep(0.01)
+
     def close(self) -> Result:
         """停周期任务 → 停监听 → bus.shutdown()。
 
-        周期任务停止失败时：重新登记失败任务、会话进入 error、**不**继续 shutdown，
-        也不报告关闭成功——与 ``periodic.stop`` 一致，避免「报告已关但周期可能仍在跑」。
+        一开始设置 ``_closing``，拒绝新的预留/提交；等待在飞预留排空后再停已登记任务。
+        周期任务停止失败时：重新登记、会话进入 error、**不**继续 shutdown。
         Monitor 仅在成功 join 后清除；周期停止失败时保留引用以便重试 close。
         """
         with self._lock:
             if self.state is SessionState.CLOSED:
                 return Result.ok({"state": self.state.value})
+            self._closing = True
+
+        reserved_wait = self._wait_periodic_reserves_clear()
+        if reserved_wait is not None:
+            return reserved_wait
+
+        with self._lock:
             names = list(self.periodic.keys())
 
         # 1. 停周期任务：任一失败则保留登记与 Monitor，中止关闭
@@ -284,8 +325,15 @@ class SessionManager:
     def open(self, alias: str) -> Result:
         with self._lock:
             existing = self._sessions.get(alias)
-            if existing is not None and existing.state is SessionState.OPEN:
-                return Result.ok({"state": existing.state.value, "reused": True})
+            if existing is not None:
+                if existing.state is SessionState.OPEN:
+                    return Result.ok({"state": existing.state.value, "reused": True})
+                if existing.state is SessionState.ERROR:
+                    return Result.err(
+                        ErrorCode.DEVICE_NOT_OPEN,
+                        f"会话处于错误状态，须先清理周期任务并关闭后再打开: {alias}",
+                        context={"alias": alias, "state": existing.state.value},
+                    )
             spec = self._specs.get(alias)
         if spec is None:
             return Result.err(ErrorCode.SESSION_NOT_FOUND, f"会话不存在: {alias}")
@@ -295,9 +343,17 @@ class SessionManager:
         session = Session(name=alias, bus=result.data, spec=spec)
         with self._lock:
             existing = self._sessions.get(alias)
-            if existing is not None and existing.state is SessionState.OPEN:
-                session.close()  # 并发下已被打开，放弃本次、复用已有
-                return Result.ok({"state": "open", "reused": True})
+            if existing is not None:
+                if existing.state is SessionState.OPEN:
+                    session.close()  # 并发下已被打开，放弃本次、复用已有
+                    return Result.ok({"state": "open", "reused": True})
+                if existing.state is SessionState.ERROR:
+                    session.close()
+                    return Result.err(
+                        ErrorCode.DEVICE_NOT_OPEN,
+                        f"会话处于错误状态，须先清理周期任务并关闭后再打开: {alias}",
+                        context={"alias": alias, "state": existing.state.value},
+                    )
             self._sessions[alias] = session
         return Result.ok({"state": "open", "reused": False})
 

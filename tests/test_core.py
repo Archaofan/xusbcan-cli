@@ -377,6 +377,114 @@ def test_periodic_reserve_is_atomic_under_contention():
     assert len(periodic_list(mgr, "can0").data["tasks"]) == MAX_PERIODIC_TASKS
 
 
+def test_close_blocks_inflight_periodic_commit():
+    """关闭开始后，在飞预留不得 commit 成功；关闭可在预留释放后完成。"""
+    import threading
+    import time
+
+    from xusbcan.core.periodic import PeriodicTask
+    from xusbcan.core.session import SessionState
+
+    mgr = _virtual_manager()
+    mgr.open("can0")
+    session = mgr.get("can0")
+    assert session is not None
+    f = CanFrame(arbitration_id=0x123, data=b"\x01")
+    assert session.reserve_periodic("p1", max_tasks=32).status == "ok"
+
+    close_box: dict = {}
+
+    def closer() -> None:
+        close_box["r"] = session.close()
+
+    thread = threading.Thread(target=closer)
+    thread.start()
+    deadline = time.time() + 2.0
+    while time.time() < deadline and not session._closing:
+        time.sleep(0.01)
+    assert session._closing is True
+
+    class _OkTask:
+        def stop(self) -> None:
+            return None
+
+    pt = PeriodicTask(name="p1", frame=f, period=0.1, task=_OkTask())
+    assert session.commit_periodic("p1", pt) is False
+    assert session.reserve_periodic("p2", max_tasks=32).status == "error"
+
+    thread.join(timeout=2.0)
+    assert close_box["r"].status == "ok"
+    assert session.state is SessionState.CLOSED
+    assert mgr.get("can0") is None or mgr.close("can0").status in {"ok", "error"}
+
+
+def test_open_does_not_replace_error_session_with_failed_periodic():
+    from xusbcan.core.session import SessionState
+
+    mgr = _virtual_manager()
+    mgr.open("can0")
+    f = CanFrame(arbitration_id=0x123, data=b"\x01")
+    assert periodic_start(mgr, "can0", "p1", f, 0.1).status == "ok"
+    session = mgr.get("can0")
+    assert session is not None
+    pt = session.pop_periodic("p1")
+    assert pt is not None
+    real = pt.task
+
+    class _Boom:
+        def stop(self) -> None:
+            raise RuntimeError("keep error session")
+
+    pt.task = _Boom()
+    session.add_periodic("p1", pt)
+    assert mgr.close("can0").status == "error"
+    assert session.state is SessionState.ERROR
+    assert mgr.get("can0") is session
+
+    opened = mgr.open("can0")
+    assert opened.status == "error"
+    assert opened.error is not None
+    assert opened.error.code == "DEVICE_NOT_OPEN"
+    assert mgr.get("can0") is session
+    assert len(periodic_list(mgr, "can0").data["tasks"]) == 1
+
+    pt.task = real
+    assert periodic_stop(mgr, "can0", "p1").status == "ok"
+    assert mgr.close("can0").status == "ok"
+
+
+def test_stop_monitor_join_timeout_keeps_reference():
+    from xusbcan.core.monitor import stop_monitor
+
+    mgr = _virtual_manager()
+    mgr.open("can0")
+    session = mgr.get("can0")
+    assert session is not None
+
+    class _Stuck:
+        def stop(self) -> None:
+            return None
+
+        def join(self, timeout=None) -> bool:
+            return False
+
+        def to_result(self):
+            raise AssertionError("should not clear stuck monitor")
+
+    stuck = _Stuck()
+    session.set_monitor(stuck)
+    session.acquire_receive("monitor")
+    result = stop_monitor(session)
+    assert result.status == "error"
+    assert result.error is not None
+    assert result.error.code == "CLOSE_TIMEOUT"
+    assert session.monitor is stuck
+    assert session.receive_owner == "monitor"
+    session.clear_monitor(stuck)
+    session.release_receive("monitor")
+    assert mgr.close("can0").status == "ok"
+
+
 class _FailingBus(can.BusABC):
     """假适配器：第 fail_at 帧发送抛 CanOperationError，覆盖「部分发送」分支。"""
 

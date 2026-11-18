@@ -146,7 +146,7 @@ def start(
         try:
             pt.stop()
         except Exception as e:
-            # 底层已启动但无法登记：挂到可观测名下
+            # 底层已启动但无法登记（含关闭竞态）：挂到可观测名下
             pt.state = "stop_failed"
             pt.stop_error = f"commit failed after start: {e}"
             alt = session.restore_periodic(name, pt)
@@ -157,8 +157,8 @@ def start(
             )
         session.cancel_periodic_reserve(name)
         return Result.err(
-            ErrorCode.INTERNAL_ERROR,
-            f"周期任务预留丢失: {name}",
+            ErrorCode.DEVICE_NOT_OPEN,
+            f"周期任务未能提交（会话关闭中或预留已失效）: {name}",
             context={"alias": session.name, "name": name},
         )
 
