@@ -26,10 +26,14 @@ def _discover_profiles() -> dict[tuple[str, str], Profile]:
     for info in pkgutil.iter_modules(adapters_pkg.__path__):
         if not info.ispkg:
             continue
+        module_name = prefix + info.name + ".profiles"
         try:
-            module = importlib.import_module(prefix + info.name + ".profiles")
-        except ModuleNotFoundError:
-            continue
+            module = importlib.import_module(module_name)
+        except ModuleNotFoundError as e:
+            # 仅跳过「该厂商没有 profiles.py」；profiles 内部依赖缺失必须暴露
+            if e.name in {module_name, prefix + info.name}:
+                continue
+            raise
         part = getattr(module, "PROFILES", None)
         if not part:
             continue
@@ -114,7 +118,22 @@ def open_device(spec: DeviceSpec) -> Result:
     except ModelCapabilityError as e:
         return Result.err(ErrorCode.CAPABILITY_UNSUPPORTED, str(e))
     except can.CanError as e:
-        return Result.err(ErrorCode.DEVICE_OPEN_FAILED, f"打开设备失败: {e}")
+        code = _error_code_from_exc(e, ErrorCode.DEVICE_OPEN_FAILED)
+        return Result.err(code, f"打开设备失败: {e}")
     except Exception as e:  # noqa: BLE001 —— 收拢未知异常，避免接口层两套失败
-        return Result.err(ErrorCode.INTERNAL_ERROR, f"内部错误: {e}")
+        code = _error_code_from_exc(e, ErrorCode.INTERNAL_ERROR)
+        return Result.err(code, f"内部错误: {e}")
     return Result.ok(bus)
+
+
+def _error_code_from_exc(exc: BaseException, default: ErrorCode) -> ErrorCode:
+    """读取适配器异常上的 ``code``；无则用 default。不 import core，避免循环依赖。"""
+    attached = getattr(exc, "code", None)
+    if isinstance(attached, ErrorCode):
+        return attached
+    if isinstance(attached, str):
+        try:
+            return ErrorCode(attached)
+        except ValueError:
+            return default
+    return default

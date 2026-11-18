@@ -38,7 +38,7 @@ class ChuangxinBus(BusABC):
         for key in ("sjw", "tseg1", "tseg2", "sjw_abr", "tseg1_abr", "tseg2_abr"):
             kwargs.pop(key, None)
         if fd or data_bitrate:
-            raise can.CanInitializationError(f"{self.CARD_LABEL} 不支持 CAN FD")
+            raise ChuangxinCapabilityUnsupportedError(f"{self.CARD_LABEL} 不支持 CAN FD")
         bitrate = kwargs.pop("bitrate", None)
         if bitrate is None:
             raise can.CanInitializationError(

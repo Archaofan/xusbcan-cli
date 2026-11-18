@@ -18,7 +18,7 @@ alwaysApply: true
 
 | 内容 | 位置 |
 |------|------|
-| 用法 / 展望 / 参与 / Skill 安装命令 | `README.md`（禁止架构与 SDK 封装细节） |
+| 用法 / 展望 / 参与 / Skill 安装 / 公开层级摘要 | `README.md`（禁止厂商 SDK 封装细节与板级结论） |
 | 二次开发公开约定 + 本清单 | `CLAUDE.md` |
 | 公开 CAN 调用与通用踩坑 | `skills/xusbcan/`（脱敏重写，禁止粘贴 docs） |
 | 架构、真机结论、禁测、本地脚本 | 本地 `docs/`、`scripts/`（不进 git） |

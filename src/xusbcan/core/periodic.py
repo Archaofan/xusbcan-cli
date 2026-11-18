@@ -22,6 +22,9 @@ from ..models.result import ErrorCode, Result
 
 # MCP / Agent 路径建议的硬上限（秒）。更长的台架任务请用本机常驻进程。
 MAX_PERIODIC_DURATION_S = 300.0
+# 软件与硬件路径统一的会话级下限 / 并发上限（2E-U 硬件表也是 32）。
+MIN_PERIODIC_PERIOD_S = 0.001
+MAX_PERIODIC_TASKS = 32
 
 
 @dataclass
@@ -113,15 +116,39 @@ def start(
     period_n = _finite_positive("period", period)
     if isinstance(period_n, Result):
         return period_n
+    if period_n < MIN_PERIODIC_PERIOD_S:
+        return Result.err(
+            ErrorCode.INVALID_ARGUMENT,
+            f"period 下限 {MIN_PERIODIC_PERIOD_S:g} 秒",
+            context={"min_period_s": MIN_PERIODIC_PERIOD_S},
+        )
     normalized = _normalize_duration(duration_s)
     if isinstance(normalized, Result):
         return normalized
     duration = normalized
 
+    if len(session.snapshot_periodic()) >= MAX_PERIODIC_TASKS:
+        return Result.err(
+            ErrorCode.INVALID_ARGUMENT,
+            f"周期任务数已达上限 {MAX_PERIODIC_TASKS}",
+            context={"alias": session.name, "max_tasks": MAX_PERIODIC_TASKS},
+        )
+    if name in {t.name for t in session.snapshot_periodic()}:
+        return Result.err(
+            ErrorCode.INVALID_ARGUMENT,
+            f"周期任务已存在: {name}",
+            context={"alias": session.name, "name": name},
+        )
+
     try:
         task = session.bus.send_periodic(frame.to_can_message(), period_n)
     except Exception as e:
-        return Result.err(ErrorCode.INTERNAL_ERROR, f"启动周期发送失败: {e}")
+        from .session import map_error
+
+        return Result.err(
+            map_error(e, default_can=ErrorCode.INTERNAL_ERROR),
+            f"启动周期发送失败: {e}",
+        )
     pt = PeriodicTask(
         name=name, frame=frame, period=period_n, task=task, duration_s=duration
     )

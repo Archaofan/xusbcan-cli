@@ -84,8 +84,12 @@ class Usbcan2EUBus(ZlgBusBase):
     def _stop_hw_index(self, index: int) -> None:
         if index not in self._hw_jobs:
             return
-        del self._hw_jobs[index]
-        self._program_all_hw()
+        removed = self._hw_jobs.pop(index)
+        try:
+            self._program_all_hw()
+        except Exception:
+            self._hw_jobs[index] = removed
+            raise
 
     def start_auto_send(self, msg: Message, interval_ms: int, index: int = 0) -> None:
         if index < 0 or index >= self.HW_PERIODIC_MAX:
@@ -94,12 +98,17 @@ class Usbcan2EUBus(ZlgBusBase):
             raise can.CanOperationError(f"定时发送索引已被占用: {index}")
         self._fill_tx(msg)
         self._hw_jobs[index] = (msg, int(interval_ms))
-        self._program_all_hw()
+        try:
+            self._program_all_hw()
+        except Exception:
+            self._hw_jobs.pop(index, None)
+            raise
 
     def stop_auto_send(self) -> None:
-        self._hw_jobs.clear()
+        """先清硬件表，成功后再清空内部登记。"""
         with self._entry.lock:
             self._clear_hw_device()
+        self._hw_jobs.clear()
 
     def _send_periodic_internal(
         self, msgs, period, duration=None, autostart=True, modifier_callback=None
@@ -166,12 +175,14 @@ class Usbcan2EUBus(ZlgBusBase):
             self._set_prop(f"{ch}/filter_ack", b"0")
 
     def _shutdown_card_hooks(self) -> None:
-        self._hw_jobs.clear()
+        """关闭前清硬件定时发送。清理失败时保留 ``_hw_jobs`` 并向上抛出。"""
         try:
             with self._entry.lock:
                 self._clear_hw_device()
         except Exception:
-            pass
+            # 内部登记仍保留，便于诊断与重试；不得假装已清理成功
+            raise
+        self._hw_jobs.clear()
 
 
 class _HwSendTask(can.broadcastmanager.CyclicSendTaskABC):

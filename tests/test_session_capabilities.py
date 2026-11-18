@@ -58,6 +58,20 @@ def test_hardware_periodic_blocks_send_until_stop():
     assert bus._hw_jobs == {}
 
 
+def test_shutdown_hooks_preserve_jobs_when_clear_auto_send_fails():
+    """clear_auto_send 失败时不得先清空 _hw_jobs，且必须向上抛出。"""
+    bus = _bare()
+    bus._hw_jobs[0] = (Message(arbitration_id=0x10, data=[1]), 10)
+
+    def _boom():
+        raise can.CanOperationError("clear_auto_send failed")
+
+    bus._clear_hw_device = _boom  # type: ignore[method-assign]
+    with pytest.raises(can.CanOperationError, match="clear_auto_send failed"):
+        bus._shutdown_card_hooks()
+    assert 0 in bus._hw_jobs
+
+
 def test_hardware_periodic_rejects_duration_and_full_table():
     bus = _bare()
     with pytest.raises(can.CanOperationError, match="duration"):

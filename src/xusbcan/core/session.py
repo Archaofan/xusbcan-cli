@@ -33,17 +33,30 @@ class SessionState(StrEnum):
     ERROR = "error"
 
 
-def map_error(exc: BaseException) -> ErrorCode:
-    """把 python-can 异常集中翻译成 ErrorCode（core 只翻译这一次，CLI/MCP 不各自翻译）。"""
+def map_error(
+    exc: BaseException,
+    *,
+    default_can: ErrorCode = ErrorCode.INTERNAL_ERROR,
+) -> ErrorCode:
+    """把异常集中翻译成 ErrorCode（core 只翻译这一次，CLI/MCP 不各自翻译）。
+
+    适配器异常可挂 ``code``（``ErrorCode`` 或同名字符串）；有则优先采用。
+    """
+    attached = getattr(exc, "code", None)
+    if isinstance(attached, ErrorCode):
+        return attached
+    if isinstance(attached, str):
+        try:
+            return ErrorCode(attached)
+        except ValueError:
+            pass
     if isinstance(exc, can.CanInterfaceNotImplementedError):
         return ErrorCode.DEVICE_OPEN_FAILED
     if isinstance(exc, can.CanInitializationError):
         return ErrorCode.DEVICE_OPEN_FAILED
-    if isinstance(exc, can.CanOperationError):
-        return ErrorCode.DEVICE_NOT_OPEN
     if isinstance(exc, can.CanError):
-        # 含 CanTimeoutError：超时本应在调用点按「成功超时」处理，逃逸到此属内部错误。
-        return ErrorCode.INTERNAL_ERROR
+        # 含 CanOperationError / CanTimeoutError：调用方用 default_can 区分发送/接收/关闭等语义。
+        return default_can
     return ErrorCode.INTERNAL_ERROR
 
 
@@ -105,24 +118,50 @@ class Session:
             return list(self.periodic.values())
 
     def close(self) -> Result:
-        """只做三步：停周期任务 → 停监听 → bus.shutdown()。
+        """停周期任务 → 停监听 → bus.shutdown()。
 
+        周期任务停止失败时：重新登记失败任务、会话进入 error、**不**继续 shutdown，
+        也不报告关闭成功——与 ``periodic.stop`` 一致，避免「报告已关但周期可能仍在跑」。
         设备句柄的引用归还由 backend 的 shutdown() 内部完成（最后一路才真正关设备）。
         """
         with self._lock:
             if self.state is SessionState.CLOSED:
                 return Result.ok({"state": self.state.value})
-            tasks = list(self.periodic.values())
-            self.periodic.clear()
+            names = list(self.periodic.keys())
             monitor = self.monitor
             self.monitor = None
 
-        # 1. 停周期任务（best-effort，不阻断 shutdown）
-        for task in tasks:
+        # 1. 停周期任务：任一失败则保留登记并中止关闭
+        stop_failures: list[str] = []
+        for name in names:
+            task = self.pop_periodic(name)
+            if task is None:
+                continue
             try:
                 task.stop()
-            except Exception:
-                pass
+            except Exception as e:
+                if not self.add_periodic(name, task):
+                    existing = self.pop_periodic(name)
+                    if existing is not None and existing is not task:
+                        try:
+                            existing.stop()
+                        except Exception:
+                            pass
+                    self.add_periodic(name, task)
+                stop_failures.append(f"{name}: {e}")
+
+        if stop_failures:
+            with self._lock:
+                self.state = SessionState.ERROR
+            return Result.err(
+                ErrorCode.INTERNAL_ERROR,
+                f"关闭前停止周期发送失败: {'; '.join(stop_failures)}",
+                context={
+                    "alias": self.name,
+                    "failed_tasks": [item.split(":", 1)[0] for item in stop_failures],
+                },
+                detail="; ".join(stop_failures),
+            )
 
         # 2. 停监听（先置停止标志再 join，带超时）
         if monitor is not None:
@@ -136,7 +175,7 @@ class Session:
                     context={"alias": self.name},
                 )
 
-        # 3. shutdown
+        # 3. shutdown（含适配器硬件周期清理；失败不得报成功）
         try:
             self.bus.shutdown()
         except can.CanError as e:

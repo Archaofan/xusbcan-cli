@@ -103,7 +103,7 @@ def transmit(session: Session, frames: CanFrame | Iterable[CanFrame]) -> Result:
             sent += 1
         except can.CanError as e:
             return Result.err(
-                ErrorCode.SEND_FAILED,
+                map_error(e, default_can=ErrorCode.SEND_FAILED),
                 f"发送失败（第 {i + 1} 帧）: {e}",
                 data={"sent": sent, "failed_index": i},
                 detail=str(e),
@@ -239,14 +239,24 @@ def close_session(manager: SessionManager, alias: str) -> Result:
     return manager.close(alias)
 
 
-def _require_open(manager: SessionManager, alias: str) -> tuple[Session | None, Result | None]:
-    """周期/监听等会话命令要求会话已显式打开（常驻持有），不复用一次性路径。"""
+def _require_open(
+    manager: SessionManager,
+    alias: str,
+    *,
+    allow_error: bool = False,
+) -> tuple[Session | None, Result | None]:
+    """周期/监听等会话命令要求会话已显式打开（常驻持有），不复用一次性路径。
+
+    ``allow_error=True``：允许 error 态（关闭前停周期失败后的观测与重试 stop）。
+    """
     session = manager.get(alias)
     if session is None:
         return None, Result.err(ErrorCode.SESSION_NOT_FOUND, f"会话未打开: {alias}")
-    if session.state is not SessionState.OPEN:
-        return None, Result.err(ErrorCode.DEVICE_NOT_OPEN, f"会话状态异常: {alias}")
-    return session, None
+    if session.state is SessionState.OPEN:
+        return session, None
+    if allow_error and session.state is SessionState.ERROR:
+        return session, None
+    return None, Result.err(ErrorCode.DEVICE_NOT_OPEN, f"会话状态异常: {alias}")
 
 
 def periodic_start(
@@ -264,14 +274,14 @@ def periodic_start(
 
 
 def periodic_stop(manager: SessionManager, alias: str, name: str) -> Result:
-    session, err = _require_open(manager, alias)
+    session, err = _require_open(manager, alias, allow_error=True)
     if err is not None:
         return err
     return periodic_mod.stop(session, name)
 
 
 def periodic_list(manager: SessionManager, alias: str) -> Result:
-    session, err = _require_open(manager, alias)
+    session, err = _require_open(manager, alias, allow_error=True)
     if err is not None:
         return err
     return periodic_mod.list_tasks(session)

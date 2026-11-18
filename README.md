@@ -272,7 +272,7 @@ npx skills add Archaofan/xusbcan-cli --skill xusbcan
 
 欢迎报告问题、提交 PR、贡献新的厂商或型号登记。公开约定摘要如下（细节见 [`CLAUDE.md`](CLAUDE.md)、[`skills/xusbcan/`](skills/xusbcan/)、[`third_party/ABI_PROVENANCE.md`](third_party/ABI_PROVENANCE.md)）：
 
-- **去耦合**：厂商差异只进 `src/xusbcan/adapters/<厂商>/`；`core` / `cli` / `mcp` 不出现厂商概念。滤波与周期发送只走 python-can 的 `set_filters` / `send_periodic`。配置里已有 `interface` 即可打开，不必先为每个型号改会话层。
+- **去耦合**：厂商差异只进 `src/xusbcan/adapters/<厂商>/`；`core` / `cli` / `mcp` 不出现厂商概念，只调用 python-can 通用接口（如 `set_filters` / `send_periodic`）。适配器可在后端钩子内使用厂商专有 API。配置里已有 `interface` 即可打开，不必先为每个型号改会话层。
 - **可持续扩展**：python-can 已有后端 → 只加 `profiles.py`（及可选型号快捷方式）；没有后端才加自研绑定并注册 `can.interface`。新增卡时改适配层 + Skill 的 `references/catalog.md` 一行 + 一份型号页；**不要**把各型号症状写进 Skill 根 `description`，也**不要**把全部厂商页塞进一次上下文。
 - **Skill 契约**：根页写通用怎么用；型号页顺序为 Quick start → How this backend behaves → Field notes。Field notes 须标明是前人台架/开发中的现场报告，**未必可复现**，不作正式「不支持」清单，也不据此断言整型号缺陷。
 - **真机与公开表述**：通用配置与该型号的驱动 / 环境变量分开写；真机确认前不要标成「已验证」。需用户自备 SDK 的新厂商，在 README 免责声明追加一条商标与交付边界。

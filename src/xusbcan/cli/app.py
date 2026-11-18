@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 import time
 from pathlib import Path
@@ -197,8 +198,15 @@ def _scenario_dir_for(mgr: SessionManager, dir_path: str) -> Result:
 
 
 def _periodic_for(mgr: SessionManager, args: argparse.Namespace) -> Result:
-    if args.duration <= 0 or args.period <= 0:
-        return Result.err(ErrorCode.INVALID_ARGUMENT, "period 和 duration 必须为正")
+    if (
+        not math.isfinite(args.duration)
+        or not math.isfinite(args.period)
+        or args.duration <= 0
+        or args.period <= 0
+    ):
+        return Result.err(
+            ErrorCode.INVALID_ARGUMENT, "period 和 duration 必须为正有限数"
+        )
     try:
         frame = CanFrame(
             arbitration_id=int(args.id, 0),

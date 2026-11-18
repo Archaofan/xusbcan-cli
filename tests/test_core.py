@@ -170,6 +170,59 @@ def test_periodic_stop_failure_keeps_registration():
     assert periodic_list(mgr, "can0").data["tasks"] == []
 
 
+def test_session_close_periodic_stop_failure_returns_error():
+    """close_device / Session.close 不得吞掉 stop 异常并报成功。"""
+    from xusbcan.core.session import SessionState
+
+    mgr = _virtual_manager()
+    mgr.open("can0")
+    f = CanFrame(arbitration_id=0x123, data=b"\x01")
+    assert periodic_start(mgr, "can0", "p1", f, 0.1).status == "ok"
+    session = mgr.get("can0")
+    assert session is not None
+    pt = session.pop_periodic("p1")
+    assert pt is not None
+    real_task = pt.task
+
+    class _BoomStop:
+        def stop(self) -> None:
+            raise RuntimeError("close stop fail")
+
+    pt.task = _BoomStop()
+    assert session.add_periodic("p1", pt)
+
+    closed = mgr.close("can0")
+    assert closed.status == "error"
+    assert closed.error is not None
+    assert "停止周期发送失败" in closed.error.message
+    assert session.state is SessionState.ERROR
+    assert mgr.get("can0") is session
+    assert len(periodic_list(mgr, "can0").data["tasks"]) == 1
+
+    pt.task = real_task
+    assert periodic_stop(mgr, "can0", "p1").status == "ok"
+    assert mgr.close("can0").status == "ok"
+
+
+def test_periodic_rejects_period_below_minimum_and_task_cap():
+    from xusbcan.core.periodic import MAX_PERIODIC_TASKS, MIN_PERIODIC_PERIOD_S
+
+    mgr = _virtual_manager()
+    mgr.open("can0")
+    f = CanFrame(arbitration_id=0x123, data=b"\x01")
+    too_small = periodic_start(mgr, "can0", "p0", f, MIN_PERIODIC_PERIOD_S / 10)
+    assert too_small.status == "error"
+    assert too_small.error is not None
+    assert too_small.error.code == "INVALID_ARGUMENT"
+
+    for i in range(MAX_PERIODIC_TASKS):
+        assert periodic_start(mgr, "can0", f"t{i}", f, 0.1).status == "ok"
+    over = periodic_start(mgr, "can0", "overflow", f, 0.1)
+    assert over.status == "error"
+    assert over.error is not None
+    assert "上限" in over.error.message
+
+
 class _FailingBus(can.BusABC):
     """假适配器：第 fail_at 帧发送抛 CanOperationError，覆盖「部分发送」分支。"""
 
