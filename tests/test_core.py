@@ -378,7 +378,7 @@ def test_periodic_reserve_is_atomic_under_contention():
 
 
 def test_close_blocks_inflight_periodic_commit():
-    """关闭开始后，在飞预留不得 commit 成功；关闭可在预留释放后完成。"""
+    """关闭开始后，在飞预留不得 commit 成功；回滚侧取消预留后关闭可完成。"""
     import threading
     import time
 
@@ -410,12 +410,180 @@ def test_close_blocks_inflight_periodic_commit():
 
     pt = PeriodicTask(name="p1", frame=f, period=0.1, task=_OkTask())
     assert session.commit_periodic("p1", pt) is False
+    assert "p1" in session._periodic_reserved
     assert session.reserve_periodic("p2", max_tasks=32).status == "error"
+    session.cancel_periodic_reserve("p1")
 
     thread.join(timeout=2.0)
     assert close_box["r"].status == "ok"
     assert session.state is SessionState.CLOSED
-    assert mgr.get("can0") is None or mgr.close("can0").status in {"ok", "error"}
+
+
+def test_close_waits_for_periodic_start_rollback():
+    """启动提交失败后的底层 stop 回滚未完成前，close 不得返回成功。"""
+    import threading
+    import time
+
+    from xusbcan.core.periodic import PeriodicTask
+    from xusbcan.core.session import SessionState
+
+    mgr = _virtual_manager()
+    mgr.open("can0")
+    session = mgr.get("can0")
+    assert session is not None
+    f = CanFrame(arbitration_id=0x123, data=b"\x01")
+
+    release_stop = threading.Event()
+    stop_entered = threading.Event()
+    closing_seen = threading.Event()
+    reserved_ready = threading.Event()
+    close_box: dict = {}
+
+    class _SlowStop:
+        def __init__(self, inner: object) -> None:
+            self._inner = inner
+
+        def stop(self) -> None:
+            stop_entered.set()
+            assert release_stop.wait(timeout=2.0)
+            self._inner.stop()  # type: ignore[attr-defined]
+
+    def starter() -> None:
+        assert session.reserve_periodic("p1", max_tasks=32).status == "ok"
+        assert session.begin_periodic_op()
+        try:
+            real = session.bus.send_periodic(f.to_can_message(), 0.1)
+            wrapper = _SlowStop(real)
+            pt = PeriodicTask(name="p1", frame=f, period=0.1, task=wrapper)
+            reserved_ready.set()
+            assert closing_seen.wait(timeout=2.0)
+            assert session.commit_periodic("p1", pt) is False
+            try:
+                pt.stop()
+            finally:
+                session.cancel_periodic_reserve("p1")
+        finally:
+            session.end_periodic_op()
+
+    def closer() -> None:
+        assert reserved_ready.wait(timeout=2.0)
+        close_box["r"] = session.close()
+
+    t_start = threading.Thread(target=starter)
+    t_close = threading.Thread(target=closer)
+    t_start.start()
+    assert reserved_ready.wait(timeout=2.0)
+    t_close.start()
+    deadline = time.time() + 2.0
+    while time.time() < deadline and not session._closing:
+        time.sleep(0.01)
+    closing_seen.set()
+    assert stop_entered.wait(timeout=2.0)
+    time.sleep(0.15)
+    assert "r" not in close_box
+    release_stop.set()
+    t_start.join(timeout=2.0)
+    t_close.join(timeout=2.0)
+    assert close_box["r"].status == "ok"
+    assert session.state is SessionState.CLOSED
+
+
+def test_close_waits_for_periodic_stop_inflight():
+    """periodic_stop 底层 stop 未完成前，close 不得返回成功。"""
+    import threading
+    import time
+
+    from xusbcan.core.session import SessionState
+
+    mgr = _virtual_manager()
+    mgr.open("can0")
+    session = mgr.get("can0")
+    assert session is not None
+    f = CanFrame(arbitration_id=0x123, data=b"\x01")
+    assert periodic_start(mgr, "can0", "p1", f, 0.1).status == "ok"
+    pt = session.pop_periodic("p1")
+    assert pt is not None
+    real = pt.task
+    release_stop = threading.Event()
+    stop_entered = threading.Event()
+
+    class _SlowStop:
+        def stop(self) -> None:
+            stop_entered.set()
+            assert release_stop.wait(timeout=2.0)
+            real.stop()
+
+    pt.task = _SlowStop()
+    session.add_periodic("p1", pt)
+
+    stop_box: dict = {}
+    close_box: dict = {}
+
+    def stopper() -> None:
+        stop_box["r"] = periodic_stop(mgr, "can0", "p1")
+
+    def closer() -> None:
+        assert stop_entered.wait(timeout=2.0)
+        close_box["r"] = session.close()
+
+    t_stop = threading.Thread(target=stopper)
+    t_close = threading.Thread(target=closer)
+    t_stop.start()
+    assert stop_entered.wait(timeout=2.0)
+    t_close.start()
+    time.sleep(0.15)
+    assert "r" not in close_box
+    release_stop.set()
+    t_stop.join(timeout=2.0)
+    t_close.join(timeout=2.0)
+    assert stop_box["r"].status == "ok"
+    assert close_box["r"].status == "ok"
+    assert session.state is SessionState.CLOSED
+
+
+def test_close_waits_for_timer_expire_stop():
+    """Timer expire 的 stop 未完成前，close 不得返回成功。"""
+    import threading
+    import time
+
+    from xusbcan.core.session import SessionState
+
+    mgr = _virtual_manager()
+    mgr.open("can0")
+    session = mgr.get("can0")
+    assert session is not None
+    f = CanFrame(arbitration_id=0x123, data=b"\x01")
+    assert periodic_start(mgr, "can0", "p1", f, 0.05, duration_s=0.05).status == "ok"
+    pt = session.pop_periodic("p1")
+    assert pt is not None
+    real = pt.task
+    release_stop = threading.Event()
+    stop_entered = threading.Event()
+
+    class _SlowStop:
+        def stop(self) -> None:
+            stop_entered.set()
+            assert release_stop.wait(timeout=2.0)
+            real.stop()
+
+    pt.task = _SlowStop()
+    session.add_periodic("p1", pt)
+
+    close_box: dict = {}
+
+    def closer() -> None:
+        assert stop_entered.wait(timeout=2.0)
+        close_box["r"] = session.close()
+
+    t_close = threading.Thread(target=closer)
+    t_close.start()
+    assert stop_entered.wait(timeout=2.0)
+    time.sleep(0.15)
+    assert "r" not in close_box
+    release_stop.set()
+    t_close.join(timeout=2.0)
+    assert close_box["r"].status == "ok"
+    assert session.state is SessionState.CLOSED
 
 
 def test_open_does_not_replace_error_session_with_failed_periodic():

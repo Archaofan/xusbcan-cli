@@ -7,6 +7,7 @@ core 不出现厂商分支。
 
 停止语义：底层 ``task.stop()`` 失败时向上返回错误，并把任务重新登记到会话，
 避免「报告已停止但硬件/软件周期仍可能在跑」。
+启动回滚与 stop / Timer expire 均登记 Session 在途操作，供 close 等待完成。
 """
 
 from __future__ import annotations
@@ -127,26 +128,58 @@ def start(
     reserved = session.reserve_periodic(name, max_tasks=MAX_PERIODIC_TASKS)
     if reserved.status == "error":
         return reserved
-
-    try:
-        task = session.bus.send_periodic(frame.to_can_message(), period_n)
-    except Exception as e:
+    if not session.begin_periodic_op():
         session.cancel_periodic_reserve(name)
-        from .session import map_error
-
         return Result.err(
-            map_error(e, default_can=ErrorCode.INTERNAL_ERROR),
-            f"启动周期发送失败: {e}",
+            ErrorCode.DEVICE_NOT_OPEN,
+            f"会话不可启动周期任务: {session.name}",
+            context={"alias": session.name, "name": name},
         )
 
-    pt = PeriodicTask(
-        name=name, frame=frame, period=period_n, task=task, duration_s=duration
-    )
-    if not session.commit_periodic(name, pt):
+    try:
+        try:
+            task = session.bus.send_periodic(frame.to_can_message(), period_n)
+        except Exception as e:
+            session.cancel_periodic_reserve(name)
+            from .session import map_error
+
+            return Result.err(
+                map_error(e, default_can=ErrorCode.INTERNAL_ERROR),
+                f"启动周期发送失败: {e}",
+            )
+
+        pt = PeriodicTask(
+            name=name, frame=frame, period=period_n, task=task, duration_s=duration
+        )
+        if session.commit_periodic(name, pt):
+            if duration is not None:
+
+                def _expire() -> None:
+                    if not session.begin_periodic_op():
+                        return
+                    try:
+                        expired = session.pop_periodic(name)
+                        if expired is None:
+                            return
+                        try:
+                            expired.stop()
+                        except Exception as exc:
+                            expired.state = "stop_failed"
+                            expired.stop_error = str(exc)
+                            _reregister(session, name, expired)
+                    finally:
+                        session.end_periodic_op()
+
+                timer = threading.Timer(duration, _expire)
+                timer.daemon = True
+                pt._timer = timer
+                timer.start()
+            return Result.ok(pt.to_dict())
+
+        # 提交失败：预留仍在，先回滚底层，再取消预留
         try:
             pt.stop()
         except Exception as e:
-            # 底层已启动但无法登记（含关闭竞态）：挂到可观测名下
             pt.state = "stop_failed"
             pt.stop_error = f"commit failed after start: {e}"
             alt = session.restore_periodic(name, pt)
@@ -161,45 +194,36 @@ def start(
             f"周期任务未能提交（会话关闭中或预留已失效）: {name}",
             context={"alias": session.name, "name": name},
         )
-
-    if duration is not None:
-
-        def _expire() -> None:
-            expired = session.pop_periodic(name)
-            if expired is None:
-                return
-            try:
-                expired.stop()
-            except Exception as exc:
-                expired.state = "stop_failed"
-                expired.stop_error = str(exc)
-                _reregister(session, name, expired)
-
-        timer = threading.Timer(duration, _expire)
-        timer.daemon = True
-        pt._timer = timer
-        timer.start()
-
-    return Result.ok(pt.to_dict())
+    finally:
+        session.end_periodic_op()
 
 
 def stop(session, name: str) -> Result:
     """先停止底层任务，成功后再从会话移除；失败则重新登记并返回错误。"""
-    task = session.pop_periodic(name)
-    if task is None:
-        return Result.err(ErrorCode.SESSION_NOT_FOUND, f"周期任务不存在: {name}")
-    try:
-        task.stop()
-    except Exception as e:
-        task.state = "stop_failed"
-        task.stop_error = str(e)
-        restored = _reregister(session, name, task)
+    if not session.begin_periodic_op():
         return Result.err(
-            ErrorCode.INTERNAL_ERROR,
-            f"停止周期发送失败: {e}",
-            context={"alias": session.name, "name": restored},
+            ErrorCode.DEVICE_NOT_OPEN,
+            f"会话已关闭，无法停止周期任务: {name}",
+            context={"alias": session.name, "name": name},
         )
-    return Result.ok({"name": name, "stopped": True})
+    try:
+        task = session.pop_periodic(name)
+        if task is None:
+            return Result.err(ErrorCode.SESSION_NOT_FOUND, f"周期任务不存在: {name}")
+        try:
+            task.stop()
+        except Exception as e:
+            task.state = "stop_failed"
+            task.stop_error = str(e)
+            restored = _reregister(session, name, task)
+            return Result.err(
+                ErrorCode.INTERNAL_ERROR,
+                f"停止周期发送失败: {e}",
+                context={"alias": session.name, "name": restored},
+            )
+        return Result.ok({"name": name, "stopped": True})
+    finally:
+        session.end_periodic_op()
 
 
 def list_tasks(session) -> Result:

@@ -72,12 +72,29 @@ class Session:
     receive_owner: str | None = None  # "monitor"（有界采集运行时占用）
     periodic: dict[str, Any] = field(default_factory=dict)  # name -> PeriodicTask
     _periodic_reserved: set[str] = field(default_factory=set, repr=False)
+    _inflight_periodic_ops: int = field(default=0, repr=False)
     _closing: bool = field(default=False, repr=False)
     monitor: Any | None = None  # 运行中的 Monitor
     _lock: threading.RLock = field(default_factory=threading.RLock, repr=False)
 
     def _accepts_periodic(self) -> bool:
         return self.state is SessionState.OPEN and not self._closing
+
+    def begin_periodic_op(self) -> bool:
+        """登记一笔在途周期操作（启动回滚 / stop / Timer expire）。
+
+        CLOSED 拒绝；``_closing`` 期间仍允许，以便关闭等待这些操作完成。
+        """
+        with self._lock:
+            if self.state is SessionState.CLOSED:
+                return False
+            self._inflight_periodic_ops += 1
+            return True
+
+    def end_periodic_op(self) -> None:
+        with self._lock:
+            if self._inflight_periodic_ops > 0:
+                self._inflight_periodic_ops -= 1
 
     # ---- 接收所有者（core 内部，供 monitor.py / commands.py 使用）----
 
@@ -143,12 +160,15 @@ class Session:
             return Result.ok({"name": name, "reserved": True})
 
     def commit_periodic(self, name: str, task: Any) -> bool:
-        """把预留位换成真实任务。关闭中或非 OPEN 时丢弃预留并返回 False。"""
+        """把预留位换成真实任务。
+
+        关闭中或非 OPEN 时返回 False 且**保留预留**，由调用方完成底层回滚后再
+        ``cancel_periodic_reserve``，避免 close 在回滚完成前看到预留已空。
+        """
         with self._lock:
             if name not in self._periodic_reserved:
                 return False
             if not self._accepts_periodic():
-                self._periodic_reserved.discard(name)
                 return False
             self._periodic_reserved.discard(name)
             self.periodic[name] = task
@@ -161,6 +181,9 @@ class Session:
     def restore_periodic(self, name: str, task: Any) -> str:
         """停止失败后放回任务。冲突时用唯一后缀登记，不覆盖、不吞掉另一个任务。"""
         with self._lock:
+            if self.state is SessionState.CLOSED:
+                # 不应在成功关闭后登记；调用方须保证在途操作在 close 成功前结束
+                return name
             existing = self.periodic.get(name)
             if existing is None or existing is task:
                 self.periodic[name] = task
@@ -178,74 +201,90 @@ class Session:
         with self._lock:
             return list(self.periodic.values())
 
-    def _wait_periodic_reserves_clear(self) -> Result | None:
-        """关闭过程中等待在飞预留结束；超时则进入 ERROR 并返回错误 Result。"""
-        deadline = time.monotonic() + CLOSE_TIMEOUT_S
+    def _wait_periodic_quiescent(self, deadline: float) -> Result | None:
+        """等待预留与在途周期操作均结束；超时则 ERROR。"""
         while True:
             with self._lock:
-                if not self._periodic_reserved:
+                if not self._periodic_reserved and self._inflight_periodic_ops == 0:
                     return None
-                pending = sorted(self._periodic_reserved)
+                pending = {
+                    "reserved": sorted(self._periodic_reserved),
+                    "inflight": self._inflight_periodic_ops,
+                }
             if time.monotonic() >= deadline:
                 with self._lock:
                     self.state = SessionState.ERROR
                 return Result.err(
                     ErrorCode.CLOSE_TIMEOUT,
-                    f"关闭时周期任务预留未完成: {self.name}",
-                    context={"alias": self.name, "reserved": pending},
+                    f"关闭时周期任务操作未完成: {self.name}",
+                    context={"alias": self.name, **pending},
                 )
             time.sleep(0.01)
 
     def close(self) -> Result:
         """停周期任务 → 停监听 → bus.shutdown()。
 
-        一开始设置 ``_closing``，拒绝新的预留/提交；等待在飞预留排空后再停已登记任务。
-        周期任务停止失败时：重新登记、会话进入 error、**不**继续 shutdown。
-        Monitor 仅在成功 join 后清除；周期停止失败时保留引用以便重试 close。
+        设置 ``_closing`` 后等待预留与在途 stop/回滚结束，再停已登记任务；
+        循环直到登记表为空，避免 Timer/stop 与 close 交错漏停。
+        周期停止失败时重新登记并进入 error，不继续 shutdown。
         """
         with self._lock:
             if self.state is SessionState.CLOSED:
                 return Result.ok({"state": self.state.value})
             self._closing = True
 
-        reserved_wait = self._wait_periodic_reserves_clear()
-        if reserved_wait is not None:
-            return reserved_wait
+        deadline = time.monotonic() + CLOSE_TIMEOUT_S
 
-        with self._lock:
-            names = list(self.periodic.keys())
+        while True:
+            quiet = self._wait_periodic_quiescent(deadline)
+            if quiet is not None:
+                return quiet
 
-        # 1. 停周期任务：任一失败则保留登记与 Monitor，中止关闭
-        stop_failures: list[str] = []
-        for name in names:
-            task = self.pop_periodic(name)
-            if task is None:
-                continue
-            try:
-                task.stop()
-            except Exception as e:
-                restored = self.restore_periodic(name, task)
-                stop_failures.append(f"{restored}: {e}")
-
-        if stop_failures:
             with self._lock:
-                self.state = SessionState.ERROR
-            return Result.err(
-                ErrorCode.INTERNAL_ERROR,
-                f"关闭前停止周期发送失败: {'; '.join(stop_failures)}",
-                context={
-                    "alias": self.name,
-                    "failed_tasks": [item.split(":", 1)[0] for item in stop_failures],
-                },
-                detail="; ".join(stop_failures),
-            )
+                names = list(self.periodic.keys())
 
-        # 2. 停监听（成功 join 后再摘掉会话上的引用）
+            if not names:
+                break
+
+            stop_failures: list[str] = []
+            for name in names:
+                if not self.begin_periodic_op():
+                    stop_failures.append(f"{name}: session closed during stop")
+                    continue
+                try:
+                    task = self.pop_periodic(name)
+                    if task is None:
+                        continue
+                    try:
+                        task.stop()
+                    except Exception as e:
+                        restored = self.restore_periodic(name, task)
+                        stop_failures.append(f"{restored}: {e}")
+                finally:
+                    self.end_periodic_op()
+
+            if stop_failures:
+                with self._lock:
+                    self.state = SessionState.ERROR
+                return Result.err(
+                    ErrorCode.INTERNAL_ERROR,
+                    f"关闭前停止周期发送失败: {'; '.join(stop_failures)}",
+                    context={
+                        "alias": self.name,
+                        "failed_tasks": [
+                            item.split(":", 1)[0] for item in stop_failures
+                        ],
+                    },
+                    detail="; ".join(stop_failures),
+                )
+            # 成功停完一轮后继续循环，吞掉期间新登记或晚到的 expire
+
+        # 停监听（成功 join 后再摘掉会话上的引用）
         with self._lock:
             monitor = self.monitor
         if monitor is not None:
             monitor.stop()
-            if not monitor.join(timeout=CLOSE_TIMEOUT_S):
+            if not monitor.join(timeout=max(0.0, deadline - time.monotonic())):
                 with self._lock:
                     self.state = SessionState.ERROR
                 return Result.err(
@@ -257,7 +296,6 @@ class Session:
                 if self.monitor is monitor:
                     self.monitor = None
 
-        # 3. shutdown（含适配器硬件周期清理；失败不得报成功）
         try:
             self.bus.shutdown()
         except can.CanError as e:
@@ -326,14 +364,20 @@ class SessionManager:
         with self._lock:
             existing = self._sessions.get(alias)
             if existing is not None:
-                if existing.state is SessionState.OPEN:
-                    return Result.ok({"state": existing.state.value, "reused": True})
                 if existing.state is SessionState.ERROR:
                     return Result.err(
                         ErrorCode.DEVICE_NOT_OPEN,
                         f"会话处于错误状态，须先清理周期任务并关闭后再打开: {alias}",
                         context={"alias": alias, "state": existing.state.value},
                     )
+                if existing.state is SessionState.OPEN:
+                    if existing._closing:
+                        return Result.err(
+                            ErrorCode.DEVICE_NOT_OPEN,
+                            f"会话正在关闭: {alias}",
+                            context={"alias": alias, "state": existing.state.value},
+                        )
+                    return Result.ok({"state": existing.state.value, "reused": True})
             spec = self._specs.get(alias)
         if spec is None:
             return Result.err(ErrorCode.SESSION_NOT_FOUND, f"会话不存在: {alias}")
@@ -344,9 +388,6 @@ class SessionManager:
         with self._lock:
             existing = self._sessions.get(alias)
             if existing is not None:
-                if existing.state is SessionState.OPEN:
-                    session.close()  # 并发下已被打开，放弃本次、复用已有
-                    return Result.ok({"state": "open", "reused": True})
                 if existing.state is SessionState.ERROR:
                     session.close()
                     return Result.err(
@@ -354,6 +395,15 @@ class SessionManager:
                         f"会话处于错误状态，须先清理周期任务并关闭后再打开: {alias}",
                         context={"alias": alias, "state": existing.state.value},
                     )
+                if existing.state is SessionState.OPEN:
+                    session.close()
+                    if existing._closing:
+                        return Result.err(
+                            ErrorCode.DEVICE_NOT_OPEN,
+                            f"会话正在关闭: {alias}",
+                            context={"alias": alias, "state": existing.state.value},
+                        )
+                    return Result.ok({"state": "open", "reused": True})
             self._sessions[alias] = session
         return Result.ok({"state": "open", "reused": False})
 
@@ -408,14 +458,20 @@ class SessionManager:
         with self._lock:
             session = self._sessions.get(alias)
             if session is not None:
-                if session.state is SessionState.OPEN:
-                    return session, None, True
                 if session.state is SessionState.ERROR:
                     return None, Result.err(
                         ErrorCode.DEVICE_NOT_OPEN,
                         f"会话处于错误状态: {alias}",
                         context={"alias": alias},
                     ), False
+                if session.state is SessionState.OPEN:
+                    if session._closing:
+                        return None, Result.err(
+                            ErrorCode.DEVICE_NOT_OPEN,
+                            f"会话正在关闭: {alias}",
+                            context={"alias": alias},
+                        ), False
+                    return session, None, True
         spec = self._specs.get(alias)
         if spec is None:
             return None, Result.err(ErrorCode.SESSION_NOT_FOUND, f"会话不存在: {alias}"), False
