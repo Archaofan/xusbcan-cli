@@ -1,47 +1,45 @@
 # Zhou Ligong USBCAN-II
 
-Read this file only when the device is `vendor = "zlg"` and `model = "USBCAN-II"`. Do not apply it to USBCAN-2E-U, PEAK, Vector, socketcan, or any other backend.
+Read this file **only** when the device is `vendor = "zlg"` and `model = "USBCAN-II"`. Do not apply it to USBCAN-2E-U, PEAK, Vector, socketcan, or any other backend.
 
-## Setup
+## Quick start
 
-Same SDK variable as other Zhou Ligong cards in this repo: `ZLG_SDK_DIR` must point at a user-installed directory that contains `zlgcan.dll` and `kerneldlls/`. Never hard-code a disk path. Do not set this variable for non-ZLG backends.
+1. Set `ZLG_SDK_DIR` to the user-installed SDK directory that contains `zlgcan.dll` and `kerneldlls/`. Never hard-code a disk path. Do not set this variable for non-ZLG backends.
+2. Config alias:
 
-The model shortcut selects interface `zlg`, channel `0` or `1`, and the device type for this card. It does not accept a CAN FD data bitrate.
+```toml
+[[devices]]
+name = "bus0"
+vendor = "zlg"
+model = "USBCAN-II"
+channel = 0
+nominal = 500000
+```
 
-## Software filter, not hardware filter tables
+Channels are `0` or `1`. The model shortcut selects interface `zlg` and this card’s device type. Classic CAN only in the usual path (no CAN FD data bitrate via this shortcut).
 
-On this model, `set_frame_filter` / `accept_all_frames` use the in-process python-can filter path. They do not program the card's hardware filter property tables. Clearing filters restores full reception in the process; do not expect a hardware whitelist on this card.
+3. One-shot: `xusbcan send bus0 --id 0x123 --data "01 02"` then `xusbcan receive bus0 --timeout 1`. Session / scenario / MCP shapes: [examples.md](examples.md).
 
-## Periodic send stays software
+## How this backend behaves in xusbcan
 
-`periodic_start` uses software `send_periodic`. A normal `send_frame` can run while a soft periodic task is active. That differs from USBCAN-2E-U hardware periodic lockout. Do not copy 2E-U periodic rules onto this model.
+- `set_frame_filter` / `accept_all_frames` use the **in-process** python-can filter path. They do **not** program this card’s hardware filter property tables. Clearing filters restores full reception in the process.
+- `periodic_start` uses software `send_periodic`. A normal `send_frame` can run while a soft periodic task is active—do **not** copy USBCAN-2E-U hardware-periodic lockout rules onto this model.
+- Prefer normal-mode open / send / receive. Do not automate writing custom serial numbers, persistent dynamic config, non-standard baud encoding, listen-only init, or hardware `filter_*` / `auto_send` property paths through agent scripts; stick to `set_frame_filter` and soft periodic.
 
-## Transmit with no ACK
+## Field notes (not guarantees)
 
-With no other node to ACK, a normal transmit can block inside the driver for several seconds and then report zero frames sent. Do not retry in a tight loop.
+Items below were **reported by earlier contributors on a specific bench**. They may not reproduce on your unit, SDK/driver build, or bus wiring. They are **not** a formal “unsupported features” list and **not** proof that every USBCAN-II is defective. Use them only when the current symptom matches; otherwise ignore and debug from CLI/MCP `error.code` and Zhou Ligong docs.
 
-## Close, then open
-
-Closing can return before the driver has fully released the device. Opening again in the same process with no pause may fail. Wait at least half a second, then retry.
-
-## Do not automate these writes
-
-| Avoid | Why |
-|-------|-----|
-| Custom serial number | Can be stored across power cycles |
-| Persistent dynamic config / firmware paths | Same |
-| Non-standard custom baud encoding | Easy to leave the channel on an unexpected rate |
-| Listen-only init mode | Can make the next open fail until a long cooldown |
-| Hardware `filter_*` / `auto_send` property paths | Not used on this model; stick to `set_frame_filter` and soft periodic |
-
-Read-only device info and a normal-mode open/send/receive loop cover almost every debug task.
+- With no other node to ACK, a normal transmit sometimes blocked inside the driver for several seconds and then reported zero frames sent. Tight retry loops made it worse.
+- Closing returned before the driver fully released the device; opening again in the same process with no pause sometimes failed. Waiting on the order of half a second before reopen helped on that bench.
+- Listen-only or unusual init modes were associated with later open failures until a long cooldown—avoid unless you are deliberately testing that mode.
 
 ## Resident script
 
 ```python
 import can
 
-bus = can.Bus(interface="zlg", channel=0, bitrate=250_000, device_type=4)
+bus = can.Bus(interface="zlg", channel=0, bitrate=500_000, device_type=4)
 task = bus.send_periodic(
     can.Message(arbitration_id=0x123, data=[0x01, 0x02], is_extended_id=False),
     period=0.1,
@@ -50,8 +48,10 @@ try:
     while True:
         msg = bus.recv(timeout=0.5)
         if msg is not None:
-            pass  # handle msg
+            pass
 finally:
     task.stop()
     bus.shutdown()
 ```
+
+Match `channel` / `bitrate` / `device_type` to the config. `ZLG_SDK_DIR` must already be set in the process environment.

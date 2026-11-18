@@ -1,1 +1,1 @@
-"""Vector 兼容层。使用 python-can 的 vector 后端，本目录只放型号快捷方式。"""
+"""Vector 兼容层：无自研 XL/ctypes；仅型号 Profile，打开走 python-can 的 vector。"""

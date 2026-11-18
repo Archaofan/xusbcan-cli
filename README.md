@@ -23,6 +23,33 @@
 - **python-can 优先**：已有后端可直接写 `interface`；需要通道映射或专有参数时再登记型号
 - **可安装 Agent Skill**：先确认型号，再调用；厂商踩坑按型号分文件
 
+## 会话层做什么
+
+本项目在 python-can（或自研后端给出的 `can.Bus`）之上提供**统一会话与命令层**，而不是再实现一套总线协议栈。大致包括：
+
+- **配置与别名**：`xusbcan.toml` 里用逻辑名引用设备，打开参数集中管理
+- **会话生命周期**：按别名 `open` / `close`，多卡并存；关闭时收回周期任务与有界监听
+- **统一结果契约**：`Result` + `error.code` 枚举，超时收帧等可程序化分支（不必解析人类日志）
+- **常用调试原语**：有界 `monitor`、带时长的周期发送、ID 范围滤波、毫秒级 `scenario` 编排
+- **双入口同源**：同一套 core 同时服务 CLI 与 MCP，避免「脚本一套、Agent 又一套」
+- **应用层预算**：周期发送 / Scenario 的时长与发送次数等限制（非硬件失效保护）
+
+底层怎么打开卡，仍由对应 `interface` 或本仓库登记的后端决定。
+
+### 相对「已经直接用 python-can + AI」的意义
+
+若团队已经让 Agent 写临时 `can.Bus` 脚本调卡，本项目**不替代** python-can，而是补一层**可复用的工具契约**：
+
+| 直接 python-can + AI | 使用本项目 |
+|----------------------|------------|
+| 每次由模型拼后端参数与样板代码 | 配置一次，用稳定 CLI / MCP 工具名调用 |
+| 输出形状随提示词变化 | 固定 JSON / `error.code`，便于 Agent 分支 |
+| 会话、周期、监听、编排各自手写 | 会话层与 `scenario` 已提供 |
+| 型号踩坑靠聊天上下文 | Skill 按型号分文件，先确认再调用 |
+| python-can 没有的卡需自写封装 | 本仓库可提供/登记后端（如部分国产卡） |
+
+已经精通 python-can、且只想本机写死脚本时，不必强行迁移。面向 **Agent 联调、多卡别名、MCP 工具化、结构化结果** 时，本项目更省事。安装本项目**不会**拦截或屏蔽 python-can 其它后端。
+
 ## 安装
 
 ```bash
@@ -141,7 +168,7 @@ nominal = 250000
 - Vector 驱动 / XL Driver（从官方渠道取得授权）
 - `channel` 使用与 python-can / XL Driver **相同的全局通道索引**（无逻辑重映射）。硬件 Channel *N* 通常对应索引 `N - 1`，以本机枚举为准
 
-打开时交给 python-can 的 `vector` 后端；本仓库只登记型号快捷方式。
+打开时交给 **python-can 已有的 `vector` 后端**。本仓库**不**封装 XL Driver ABI，只提供型号快捷方式（通道数、`app_name=None` 等）以及 CLI / MCP / Skill 的统一用法与真机说明。
 
 ```toml
 [[devices]]
@@ -207,9 +234,11 @@ nominal = 250000
 }
 ```
 
-### 其它后端
+### 其它后端（python-can 直通）
 
-python-can 已声明的后端（socketcan、slcan、Kvaser、`pcan` 等）可直接配置 `interface`。本仓库对 **PEAK PCAN-USB** 另有型号登记（通道映射），状态为「已登记，未在本仓库真机确认」。驱动与 `channel` / `extra` 仍按该后端文档准备。
+以 Vector 等型号为证：**python-can 已有后端 + 本项目会话层** 这条路径已经走通。因此，凡在当前环境中 python-can 已声明且本机能打开的后端（如 socketcan、slcan、Kvaser、`pcan` 等），**大概率**只需配置 `interface` / `channel` / `extra` 即可用同一套 CLI / MCP；**不保证**每张卡都已在本仓库真机确认，驱动安装、通道写法、FD/滤波/无 ACK 等行为仍随后端而异，可能踩坑。
+
+本仓库对 **PEAK PCAN-USB** 另有型号登记（通道映射），状态为「已登记，未在本仓库真机确认」。写了 `interface` 时不会改走别的后端，也不会阻止你继续在别的程序里直接使用 python-can。
 
 ## 支持范围
 
@@ -223,7 +252,7 @@ python-can 已声明的后端（socketcan、slcan、Kvaser、`pcan` 等）可直
 | 创芯 | USB_CAN-2A-GD | 已登记（真机验证挂起） | 与 2C 同后端族；验证暂挂起 |
 | PEAK | PCAN-USB | 已登记 | python-can `pcan` |
 
-上表是带登记或真机说明的型号，不是准入白名单。其它 python-can 后端同样可通过 `interface` 打开。python-can 无法打开的卡才需要新后端；若新后端要求用户自备 SDK，请在免责声明中追加该厂商。
+上表是带登记或真机说明的型号，不是准入白名单。其它 python-can 后端见上文「其它后端（python-can 直通）」：可打开 ≠ 本仓库已逐型号真机确认。python-can 无法打开的卡才需要新后端；若新后端要求用户自备 SDK，请在免责声明中追加该厂商。
 
 ### 真机验证说明
 
@@ -237,11 +266,17 @@ python-can 已声明的后端（socketcan、slcan、Kvaser、`pcan` 等）可直
 npx skills add Archaofan/xusbcan-cli --skill xusbcan
 ```
 
-在项目目录执行可装到当前工程；`-g` 装到用户目录；`-a` 指定客户端（如 `cursor`）。Skill 会先确认型号再给通用命令；厂商相关注意写在 `references/` 下对应文件。
+在项目目录执行可装到当前工程；`-g` 装到用户目录；`-a` 指定客户端（如 `cursor`）。Skill 先读通用契约，再按 `references/catalog.md` 只打开当前配置对应的型号页，避免把全部厂商知识塞进上下文。
 
 ## 参与
 
-欢迎报告问题、提交 PR、贡献新的厂商或型号登记。请把通用配置与该型号的驱动 / 环境变量分开写，并在真机确认前不要标成「已验证」。
+欢迎报告问题、提交 PR、贡献新的厂商或型号登记。公开约定摘要如下（细节见 [`CLAUDE.md`](CLAUDE.md)、[`skills/xusbcan/`](skills/xusbcan/)、[`third_party/ABI_PROVENANCE.md`](third_party/ABI_PROVENANCE.md)）：
+
+- **去耦合**：厂商差异只进 `src/xusbcan/adapters/<厂商>/`；`core` / `cli` / `mcp` 不出现厂商概念。滤波与周期发送只走 python-can 的 `set_filters` / `send_periodic`。配置里已有 `interface` 即可打开，不必先为每个型号改会话层。
+- **可持续扩展**：python-can 已有后端 → 只加 `profiles.py`（及可选型号快捷方式）；没有后端才加自研绑定并注册 `can.interface`。新增卡时改适配层 + Skill 的 `references/catalog.md` 一行 + 一份型号页；**不要**把各型号症状写进 Skill 根 `description`，也**不要**把全部厂商页塞进一次上下文。
+- **Skill 契约**：根页写通用怎么用；型号页顺序为 Quick start → How this backend behaves → Field notes。Field notes 须标明是前人台架/开发中的现场报告，**未必可复现**，不作正式「不支持」清单，也不据此断言整型号缺陷。
+- **真机与公开表述**：通用配置与该型号的驱动 / 环境变量分开写；真机确认前不要标成「已验证」。需用户自备 SDK 的新厂商，在 README 免责声明追加一条商标与交付边界。
+- **合规**：不提交厂商 DLL / SDK 原文、本机绝对路径、客户/ECU 名等；提交前按 `CLAUDE.md` 脱敏清单自检。
 
 ## 安全使用
 
@@ -266,4 +301,4 @@ npx skills add Archaofan/xusbcan-cli --skill xusbcan
 
 ## License
 
-[MIT License](LICENSE)。第三方条款见 [`third_party/NOTICES`](third_party/NOTICES)；周立功公开 ABI 绑定说明见 [`third_party/ABI_PROVENANCE.md`](third_party/ABI_PROVENANCE.md)。
+[MIT License](LICENSE)。第三方条款见 [`third_party/NOTICES`](third_party/NOTICES)。各厂商是「自研 ctypes 后端」还是「仅 python-can 快捷方式」，见 [`third_party/ABI_PROVENANCE.md`](third_party/ABI_PROVENANCE.md)。

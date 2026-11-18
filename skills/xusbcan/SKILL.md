@@ -1,68 +1,69 @@
 ---
 name: xusbcan
-description: Use when an agent must send, receive, monitor, or periodically transmit CAN frames with xusbcan-cli, xusbcan-mcp, or a python-can interface named in xusbcan config, including a long-running script. Also when the adapter model is still unknown. When the configured model is Zhou Ligong USBCAN-2E-U, also when receive goes empty after a filter change, transmit blocks with no ACK, hardware periodic send conflicts with normal transmit, or the device will not reopen right after close. When the model is Zhou Ligong USBCAN-II, also when soft filters, soft periodic send, no-ACK transmit stalls, or reopen-after-close need the II-specific path. When the model is Vector VN1640A (or interface vector for that card), also when choosing the XL global channel index, multi-channel open, soft filters beside other bus traffic, or reopen after close. When the model is Chuangxin USB_CAN-2C (or USB_CAN-2A-GD on the same backend), also when CHUANGXIN_SDK_DIR, ControlCAN loading, or coexistence with a separate ZLG_SDK_DIR setup is involved.
+description: >
+  Use when working with xusbcan-cli, xusbcan-mcp, or an xusbcan.toml CAN device
+  alias—send, receive, monitor, periodic transmit, scenario, or session setup.
+  Also when the adapter vendor/model is still unknown and must be identified
+  from config before opening the bus. Load only the matching model reference
+  via references/catalog.md; do not preload every vendor page.
 license: MIT
-compatibility: Python 3.11+. Drivers depend on the backend named in the config. Read a model reference only when that model is the one configured.
+compatibility: >
+  Python 3.11+. Drivers depend on the backend in config. Progressive disclosure:
+  read catalog.md, then at most one model reference.
 metadata:
   author: xusbcan-cli
-  version: "1.9.1"
+  version: "2.1.0"
 ---
 
 # xusbcan
 
+## Progressive disclosure (required)
+
+1. Read `interface` or `vendor` / `model` from `xusbcan.toml` (or ask the user). Do not invent a vendor.
+2. Open [references/catalog.md](references/catalog.md) and find **one** matching row.
+3. Open **only** that model file (if any). Do **not** read other `references/zlg-*`, `vector-*`, or `chuangxin-*` pages in the same turn unless the config names another device.
+4. Shared optional pages: [references/examples.md](references/examples.md) (how to call), [references/pitfalls.md](references/pitfalls.md) (contracts + labeled field notes).
+
+On each model page, prefer **Quick start** and **How this backend behaves**. Treat **Field notes** as earlier contributors’ bench reports: they may not reproduce and are not formal “unsupported” claims—match the current symptom before acting.
+
+Vendor SDK variables and channel rules live **only** on the model page. Copying another card’s env var or timing into this session is wrong.
+
 ## Overview
 
-Identify the adapter from `xusbcan.toml` before opening it. Then use the public CLI, MCP tools, or one resident process. Command names do not change with the vendor. The driver, channel, and `extra` keys do.
+Command names do not change with the vendor. The driver, channel, and `extra` keys do.
 
-Set `interface` to a backend python-can already declares (`socketcan`, `pcan`, `kvaser`, `slcan`, `vector`, …). That opens through the CLI and MCP. No model row is required. `vendor` / `model` are optional shortcuts that add a channel map or fixed options. If `interface` is set, those shortcuts are not applied.
+- Set `interface` to a backend python-can already declares → opens through CLI/MCP; no model row required.
+- `vendor` / `model` are optional shortcuts (channel map or fixed options). If `interface` is set, those shortcuts are skipped.
+- A card python-can does not declare needs a backend under `adapters/<vendor>/`. A known interface name does not mean this repo verified that hardware.
 
-A card python-can does not declare needs a backend under `adapters/<vendor>/`. Installing the driver is still required. A known interface name does not mean the hardware was verified here.
-
-Do not invent vendor calls, and do not put machine-local paths or private notes into files that will be committed.
+Do not invent vendor DLL calls. Do not put machine-local paths or private notes into committed files.
 
 ## When to use
 
 - One-shot send, receive, monitor, or status
 - A session that stays open (periodic transmit, repeated receive)
+- Millisecond scenarios or MCP tool calls
 - An offline script that must keep running after the agent exits
 - The config names any python-can backend, or the backend is not chosen yet
 
 When not to use: changing product firmware, or editing ignored local design notes.
-
-## Before calling the hardware
-
-1. Read `interface`, or `vendor` / `model`, from `xusbcan.toml`. Do not reuse another card's driver steps.
-2. Shared setup: alias, channel, bitrate, and `XUSBCAN_CONFIG` or `./xusbcan.toml`. Confirm with `xusbcan list`.
-3. Open a model reference only after the name matches.
-   - `vendor = "zlg"` and `model = "USBCAN-2E-U"` → [references/zlg-usbcan-2e-u.md](references/zlg-usbcan-2e-u.md)
-   - `vendor = "zlg"` and `model = "USBCAN-II"` → [references/zlg-usbcan-ii.md](references/zlg-usbcan-ii.md)
-   - `vendor = "vector"` and `model = "VN1640A"` → [references/vector-vn1640a.md](references/vector-vn1640a.md)
-   - `vendor = "chuangxin"` and `model = "USB_CAN-2C"` → [references/chuangxin-usb-can-2c.md](references/chuangxin-usb-can-2c.md)
-   - `vendor = "chuangxin"` and `model = "USB_CAN-2A-GD"` → same reference for setup; hardware verification is suspended—do not claim verified
-   - Bare `interface = "zlg"` without a model: prefer the model that matches `device_type` in `extra` (21 → 2E-U, 4 → II). Do not open the wrong ZLG reference for PEAK, Vector, Chuangxin, or socketcan.
-   - Bare `interface = "vector"` aimed at a VN1640A: read the VN1640A reference for channel-index rules. Do not apply ZLG or Chuangxin SDK variables. Do not assume an unverified Vector model shares the same bench results.
-   - Bare `interface = "chuangxin"`: require `CHUANGXIN_SDK_DIR` and channels `0`/`1`. Do not use `ZLG_SDK_DIR` for this backend.
 
 ## Which interface
 
 | Need | Use |
 |------|-----|
 | One command, then exit | CLI: `list` `send` `receive` `monitor` `status` `periodic` |
-| Millisecond send→wait→send script | CLI: `scenario --file`, or `xusbcan.scenario.run_scenario` |
-| Agent tools, session, periodic, scenario | MCP: `open_device`, `send_frame`, `receive_frame`, `monitor`, `periodic_start` / `periodic_stop` / `periodic_list`, `set_frame_filter`, `accept_all_frames`, `run_scenario`, `close_device` |
-| Hours-long send/receive with no agent | One Python process holding `can.Bus` or a core session |
+| Millisecond send→wait→send | CLI: `scenario --file`, or `xusbcan.scenario.run_scenario` |
+| Agent tools / session | MCP: `open_device`, `send_frame`, `receive_frame`, `monitor`, `periodic_start` / `periodic_stop` / `periodic_list`, `set_frame_filter`, `accept_all_frames`, `run_scenario`, `close_device` |
+| Hours-long with no agent | One process holding `can.Bus` or a core session |
 
-`receive` and `monitor` take `--from-id` and `--to-id` for one range. `set_frame_filter` does the same on an open session. `accept_all_frames` restores full reception. CLI `periodic` runs until `--duration` elapses. MCP and scenario `periodic_start` require `duration_s` (max 300 seconds) and auto-stop; scenario also cleans owned periodics when the run ends. For longer bench runs, use a local resident process instead of MCP.
+`receive` / `monitor` accept `--from-id` / `--to-id`. `set_frame_filter` does the same on an open session; `accept_all_frames` restores full reception. CLI `periodic` needs `--duration`. MCP and scenario `periodic_start` need `duration_s` (max 300s) and auto-stop. Longer runs: local resident process, not unbounded MCP.
 
-CLI and one-shot MCP calls open and close the device each time. Do not loop them for a long job.
+CLI one-shots open and close each time—do not loop them for a long job. Stdout is one JSON object; branch on `status` and `error.code`. A receive timeout is success with no frame.
 
-Stdout of the CLI is one JSON object. Branch on `status` and `error.code`. A receive timeout is success with no frame, not a crash.
+## Long-running script shape
 
-Templates: [references/examples.md](references/examples.md). Shared failures: [references/pitfalls.md](references/pitfalls.md).
-
-## Long-running script
-
-Use the `interface` and `channel` from the config. The snippet uses socketcan only as a shape. Replace both when the config names a different backend.
+Use the config’s `interface` and `channel`. The snippet is a shape only:
 
 ```python
 import can
@@ -82,12 +83,14 @@ finally:
     bus.shutdown()
 ```
 
-Stop the periodic task before shutdown.
+Stop the periodic task before shutdown. For vendor SDK env vars, read the catalog-selected model page—do not assume socketcan.
 
 ## Privacy
 
-Public skills and commits may name an environment variable the backend documents, and neutral IDs such as `0x123`. They must not contain absolute paths, customer or ECU names, or text copied from local-only notes. Before any `git add` / `commit` in this repo, run the full desensitization checklist in `CLAUDE.md`.
+Public skills may name an env var the backend documents and neutral IDs such as `0x123`. No absolute paths, customer/ECU names, or text from local-only notes. Before `git add` / `commit` in this repo, follow the desensitization checklist in `CLAUDE.md`.
 
 ## Maintenance
 
-Update this skill when CLI or MCP names change. Put a new card's driver steps and pitfalls in `references/<model>.md`, and link that file only from the step that checks the model name. Keep board-specific notes out of the repository. When a vendor SDK is wrapped, add that vendor to the README disclaimer.
+- CLI/MCP renames → update this file and [examples.md](references/examples.md).
+- New card → copy [references/_template-model.md](references/_template-model.md), fill Quick start first, add one row in [catalog.md](references/catalog.md). Keep Field notes short and labeled as non-guarantees. **Do not** grow the YAML `description` with per-model symptoms.
+- Keep board-specific notes out of git. Wrapped vendor SDKs → README disclaimer bullet.

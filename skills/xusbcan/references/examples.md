@@ -1,6 +1,8 @@
 # Examples
 
-Replace `bus0` with the alias in `xusbcan.toml`. Match that file's `interface` or `vendor` / `model`, channel, and bitrate. Do not embed a real SDK directory.
+How to call CLI / MCP / scenario. Replace `bus0` with the alias in `xusbcan.toml`. Match that file's `interface` or `vendor` / `model`, channel, and bitrate. Do not embed a real SDK directory. This page is **usage shapes only**—not a dump of every vendor’s field notes.
+
+Generic shape (any backend; fill from the real config):
 
 ```toml
 [[devices]]
@@ -10,29 +12,9 @@ channel = "can0"
 nominal = 500000
 ```
 
-Verified Vector example (channel is the XL / python-can global index; no remapping):
+`interface` is any backend python-can declares. A `vendor` / `model` shortcut is optional and is skipped when `interface` is set.
 
-```toml
-[[devices]]
-name = "vn_ch3"
-vendor = "vector"
-model = "VN1640A"
-channel = 2
-nominal = 250000
-```
-
-Verified Chuangxin example (`CHUANGXIN_SDK_DIR` must point at the ControlCAN.dll directory):
-
-```toml
-[[devices]]
-name = "cx0"
-vendor = "chuangxin"
-model = "USB_CAN-2C"
-channel = 0
-nominal = 250000
-```
-
-`interface` is any backend python-can declares. A `vendor` / `model` shortcut is optional and is skipped when `interface` is set. Model-specific setup, such as a vendor SDK directory or Vector driver prerequisites, belongs in that model's reference and is used only when the config names that model.
+**Vendor / model TOML, env vars, and channel rules:** open [catalog.md](catalog.md), then **only** the matching model page. Do not paste another card’s example here or into the agent context.
 
 ## CLI (one shot)
 

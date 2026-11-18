@@ -23,6 +23,21 @@ The **goal** is for xusbcan-cli to become a reliable bridge between AI and autom
 - **python-can first**: set `interface` for backends already declared; register a model only when you need a channel map or fixed options
 - **Installable Agent Skill**: identify the model first; vendor pitfalls live in per-model files
 
+## What the session layer adds
+
+This project sits on python-can (or a first-party backend that still exposes `can.Bus`). It does **not** reimplement the CAN protocol stack. It adds:
+
+- **Config and aliases**: logical device names in `xusbcan.toml`
+- **Session lifecycle**: open/close per alias, multi-device; shutdown stops periodics and bounded monitors
+- **Stable result contract**: `Result` + `error.code` for programmatic branching
+- **Debug primitives**: bounded `monitor`, duration-limited periodic send, ID-range filters, millisecond `scenario` scripts
+- **One core, two fronts**: CLI and MCP share the same commands
+- **Application-layer budgets**: duration / send caps for agent paths (not hardware fail-safe)
+
+### If you already use python-can with an AI agent
+
+xusbcan-cli does **not** replace python-can. It adds a **reusable tool contract**: fixed CLI/MCP names, JSON results, sessions, scenarios, and per-model Skill notes—so the agent is not reinventing `Bus(...)` boilerplate every turn. Teams that only want hand-written python-can scripts can keep doing that. Installing this package does **not** block or override other python-can backends.
+
 ## Install
 
 ```bash
@@ -140,7 +155,7 @@ Needs:
 - Vector driver / XL Driver (licensed from official channels)
 - `channel` as the **same global index** python-can / the XL Driver use (no remapping). Hardware Channel *N* is usually index `N - 1`; trust host enumeration
 
-Opens through python-can’s `vector` backend; this repo only registers a model shortcut.
+Opens through python-can’s existing `vector` backend. This repo does **not** wrap the XL Driver ABI; it only adds a model shortcut (channel count, `app_name=None`, etc.) plus shared CLI / MCP / Skill usage and verification notes.
 
 ```toml
 [[devices]]
@@ -206,9 +221,11 @@ Load only one chosen `ControlCAN.dll` in a process. If other software needs its 
 }
 ```
 
-### Other backends
+### Other backends (python-can passthrough)
 
-Backends python-can already declares (socketcan, slcan, Kvaser, `pcan`, …) can use `interface` directly. **PEAK PCAN-USB** is also registered here (channel map) as “registered, not verified in this repo”. Follow that backend’s docs for driver, `channel`, and `extra`.
+Models such as Vector show that **python-can’s existing backend + this project’s session layer** works end-to-end. So any backend your installed python-can already declares and can open on the host (socketcan, slcan, Kvaser, `pcan`, …) can **likely** use the same CLI/MCP via `interface` / `channel` / `extra`. That is **not** a per-model hardware verification claim; drivers, channel strings, FD/filter/no-ACK behavior still vary and may fail in practice.
+
+**PEAK PCAN-USB** is also registered here (channel map) as “registered, not verified in this repo”. Setting `interface` does not redirect you to another backend, and it does not stop other programs from using python-can directly.
 
 ## Supported hardware
 
@@ -222,7 +239,7 @@ Backends python-can already declares (socketcan, slcan, Kvaser, `pcan`, …) can
 | Chuangxin | USB_CAN-2A-GD | Registered (HW verification suspended) | Same backend family as 2C; verification on hold |
 | PEAK | PCAN-USB | Registered | python-can `pcan` |
 
-This table lists registered or verified models; it is not an allow-list. Other python-can backends open via `interface` as well. A card python-can cannot open needs a new backend; if that backend requires a user-supplied SDK, add the vendor to the disclaimer.
+This table lists registered or verified models; it is not an allow-list. See “Other backends (python-can passthrough)” above: openable ≠ verified here model-by-model. A card python-can cannot open needs a new backend; if that backend requires a user-supplied SDK, add the vendor to the disclaimer.
 
 ### Hardware verification note
 
@@ -236,11 +253,17 @@ This table lists registered or verified models; it is not an allow-list. Other p
 npx skills add Archaofan/xusbcan-cli --skill xusbcan
 ```
 
-Install in the project directory, or `-g` for user-wide, or `-a` for a client (for example `cursor`). The skill confirms the model first; vendor notes stay under `references/`.
+Install in the project directory, or `-g` for user-wide, or `-a` for a client (for example `cursor`). The skill loads a short contract first, then opens only the model page matched via `references/catalog.md`—not every vendor file.
 
 ## Contributing
 
-Issues, PRs, and new vendor or model registrations are welcome. Keep shared config separate from that model’s driver and env vars, and do not mark a model verified before it has been run on hardware.
+Issues, PRs, and new vendor or model registrations are welcome. Public contracts (details in [`CLAUDE.md`](CLAUDE.md), [`skills/xusbcan/`](skills/xusbcan/), [`third_party/ABI_PROVENANCE.md`](third_party/ABI_PROVENANCE.md)):
+
+- **Decoupling**: Vendor differences stay under `src/xusbcan/adapters/<vendor>/` only. `core` / `cli` / `mcp` must not name vendors. Filters and periodic transmit use python-can `set_filters` / `send_periodic` only. A declared `interface` is enough to open a bus—do not change the session layer for each new model.
+- **Extensibility**: If python-can already has the backend, add `profiles.py` (and optional model shortcuts). Add a custom binding and `can.interface` entry only when that backend is missing. For a new card: adapter + one `references/catalog.md` row + one model page. **Do not** stuff per-model symptoms into the root Skill `description`, and **do not** load every vendor page into one context.
+- **Skill contract**: Root page = how to call shared APIs. Model pages = Quick start → How this backend behaves → Field notes. Field notes must be labeled as earlier contributors’ bench/dev reports—**not guaranteed to reproduce**, not a formal “unsupported” list, and not proof that every unit of that model is defective.
+- **Verification wording**: Keep shared config separate from that model’s driver/env vars; do not mark verified before a hardware run. New vendors that need a user-supplied SDK get one more trademark/delivery bullet in the README disclaimer.
+- **Compliance**: Do not commit vendor DLLs/SDK sources, machine absolute paths, or customer/ECU names; run the desensitization checklist in `CLAUDE.md` before every commit.
 
 ## Safe use
 
@@ -265,4 +288,4 @@ When a newly supported vendor requires a user-supplied SDK or proprietary driver
 
 ## License
 
-[MIT License](LICENSE). See [`third_party/NOTICES`](third_party/NOTICES) and [`third_party/ABI_PROVENANCE.md`](third_party/ABI_PROVENANCE.md).
+[MIT License](LICENSE). See [`third_party/NOTICES`](third_party/NOTICES). Whether an adapter is a first-party ctypes backend or only a python-can shortcut is summarized in [`third_party/ABI_PROVENANCE.md`](third_party/ABI_PROVENANCE.md).
