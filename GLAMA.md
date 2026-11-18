@@ -28,32 +28,67 @@ only). It does **not** talk to real CAN hardware.
 
 ## Fallback: Glama generated build form
 
-If the admin UI only shows build steps + CMD (no free-form Dockerfile):
+Glama generates its own Dockerfile (clone into `/app`, wrap with `mcp-proxy`).
+Do **not** use `uv pip install --system`: on `debian:trixie-slim` that targets the
+distro Python and fails with “externally managed”.
 
 | Field | Value |
 | --- | --- |
-| Build steps | `pip install --no-cache-dir ".[mcp]"` |
-| CMD arguments | `xusbcan-mcp` (one argument), or `python` + `-m` + `xusbcan.mcp.server` |
-| Environment variables schema | see below |
-| Placeholder parameters | `{}` |
-| Pinned commit SHA | empty (use latest after Sync) |
+| Base image | `debian:trixie-slim` |
+| Node.js | `24` (mcp-proxy) |
+| Python | `3.12` |
+| Build steps | see JSON below |
+| CMD arguments | see JSON below |
+| Environment variables schema | see below (`required` must be `[]`) |
+| Placeholder parameters | `{"XUSBCAN_CONFIG":"/app/docker/xusbcan.toml"}` |
+| Pinned commit SHA | empty (or current HEAD after Sync) |
 
-Environment variables JSON schema (single-line in the form if required):
+Build steps:
 
 ```json
-{"type":"object","properties":{"XUSBCAN_CONFIG":{"type":"string","description":"Path to xusbcan.toml"}},"required":[]}
+[
+  "uv venv /opt/venv && uv pip install --python /opt/venv/bin/python \".[mcp]\""
+]
 ```
 
-If the form cannot set `XUSBCAN_CONFIG`, the cloned repo’s root `xusbcan.toml` is
-enough for `tools/list` (devices register; open needs host drivers for real
-models). Prefer setting:
+CMD arguments:
 
-`XUSBCAN_CONFIG=/app/docker/xusbcan.toml`
+```json
+[
+  "mcp-proxy",
+  "--",
+  "/opt/venv/bin/xusbcan-mcp"
+]
+```
 
-so sandbox probes that call `open` still use `virtual`.
+Environment variables JSON schema:
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "XUSBCAN_CONFIG": {
+      "type": "string",
+      "description": "Path to xusbcan.toml. For Glama smoke use /app/docker/xusbcan.toml (virtual only)."
+    },
+    "ZLG_SDK_DIR": {
+      "type": "string",
+      "description": "Optional host path to ZLG SDK; not used in Glama sandbox."
+    },
+    "CHUANGXIN_SDK_DIR": {
+      "type": "string",
+      "description": "Optional host path to Chuangxin SDK; not used in Glama sandbox."
+    }
+  },
+  "required": []
+}
+```
 
 ## After release
 
 - Discovery score should leave the “No Glama release” blocker.
-- Server Coherence / TDQS may fill after Glama introspects tools.
+- Server Coherence / TDQS fill after Glama introspects tools from a successful build.
+- After improving MCP tool descriptions/annotations in `src/xusbcan/mcp/tools.py`,
+  Sync → Build again (same form values) so Glama re-reads `tools/list`, then check
+  Admin → TDQS. No need to bump the Glama release version unless you want a new publish.
 - Real CAN use remains a **local** install (`uvx` / pip + vendor SDK), not this image.
