@@ -5,38 +5,46 @@ from __future__ import annotations
 import json
 from typing import Annotated
 
-from mcp.types import ToolAnnotations
-from pydantic import Field
-
 from .. import core
 from ..models.frame import CanFrame
 from ..models.result import ErrorCode, Result
 from ..scenario import run_scenario as execute_scenario
 
-_RO = ToolAnnotations(
-    readOnlyHint=True,
-    destructiveHint=False,
-    idempotentHint=True,
-    openWorldHint=False,
-)
-_RW_BUS = ToolAnnotations(
-    readOnlyHint=False,
-    destructiveHint=False,
-    idempotentHint=False,
-    openWorldHint=True,
-)
-_RW_IDEM_BUS = ToolAnnotations(
-    readOnlyHint=False,
-    destructiveHint=False,
-    idempotentHint=True,
-    openWorldHint=True,
-)
-_RW_SESSION = ToolAnnotations(
-    readOnlyHint=False,
-    destructiveHint=False,
-    idempotentHint=True,
-    openWorldHint=False,
-)
+# mcp / pydantic 仅为 optional（.[mcp]）。注解用 dict，避免无 mcp 时
+# import tools 失败（CI 的 .[dev] 不含 mcp）。有 pydantic 时 Field 写入 schema。
+try:
+    from pydantic import Field
+except ImportError:  # pragma: no cover
+
+    def Field(*, description: str, **_kwargs):  # type: ignore[misc]
+        return description
+
+
+# MCP ToolAnnotations-compatible dicts (readOnlyHint / … camelCase keys).
+_RO = {
+    "readOnlyHint": True,
+    "destructiveHint": False,
+    "idempotentHint": True,
+    "openWorldHint": False,
+}
+_RW_BUS = {
+    "readOnlyHint": False,
+    "destructiveHint": False,
+    "idempotentHint": False,
+    "openWorldHint": True,
+}
+_RW_IDEM_BUS = {
+    "readOnlyHint": False,
+    "destructiveHint": False,
+    "idempotentHint": True,
+    "openWorldHint": True,
+}
+_RW_SESSION = {
+    "readOnlyHint": False,
+    "destructiveHint": False,
+    "idempotentHint": True,
+    "openWorldHint": False,
+}
 
 
 def _json(result: Result) -> str:
