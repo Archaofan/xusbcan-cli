@@ -11,6 +11,8 @@ Runs as a backend service with both a standard **CLI** and an **MCP (Model Conte
 
 [中文](README.md) | English
 
+China mirror: [Gitee](https://gitee.com/carson0323/xusbcan-cli) (synced from GitHub)
+
 ## Vision
 
 Agents should drive a CAN bus like any other tool: structured output, stable contracts, programmatic invocation.

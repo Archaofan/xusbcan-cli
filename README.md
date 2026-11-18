@@ -13,6 +13,8 @@
 
 中文 | [English](README.en.md)
 
+国内镜像：[Gitee](https://gitee.com/carson0323/xusbcan-cli)（以 GitHub 为准同步）
+
 ## 目标与展望
 
 在 AI 时代，让 Agent 能像使用普通工具一样操作 CAN 总线：结构化输出、稳定契约、可被程序化调用。
