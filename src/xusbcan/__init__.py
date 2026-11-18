@@ -4,4 +4,4 @@
 （无 zlgcan.dll）上也能 `import xusbcan`，`virtual` 后端测试才能运行。
 """
 
-__version__ = "0.1.1"
+__version__ = "0.1.2"

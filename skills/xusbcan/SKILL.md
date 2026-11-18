@@ -12,7 +12,7 @@ compatibility: >
   read catalog.md, then at most one model reference.
 metadata:
   author: xusbcan-cli
-  version: "2.1.1"
+  version: "2.1.2"
 ---
 
 # xusbcan
