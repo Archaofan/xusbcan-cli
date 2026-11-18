@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="420" viewBox="0 0 960 420" role="img" aria-labelledby="title desc">
+  <title id="title">xusbcan-cli session layer</title>
+  <desc id="desc">CLI and MCP share one session layer above python-can and can.Bus</desc>
+  <defs>
+    <style>
+      .bg { fill: #1b1f24; }
+      .panel { fill: #252b33; stroke: #3d4654; stroke-width: 1.5; }
+      .panel-accent { fill: #2a3340; stroke: #5b8def; stroke-width: 1.75; }
+      .bus { fill: #1f2a24; stroke: #3d7a5a; stroke-width: 1.5; }
+      .title { fill: #e8eef7; font: 700 18px 'Segoe UI', system-ui, sans-serif; }
+      .label { fill: #e8eef7; font: 600 14px 'Segoe UI', system-ui, sans-serif; }
+      .sub { fill: #9aa7b8; font: 400 12px 'Segoe UI', system-ui, sans-serif; }
+      .arrow { stroke: #7f8b9c; stroke-width: 2; fill: none; marker-end: url(#arrowHead); }
+      .caption { fill: #7f8b9c; font: 400 11px 'Segoe UI', system-ui, sans-serif; }
+    </style>
+    <marker id="arrowHead" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L6,3 L0,6 Z" fill="#7f8b9c"/>
+    </marker>
+  </defs>
+  <rect class="bg" width="960" height="420" rx="12"/>
+  <text class="title" x="32" y="40">xusbcan-cli - session layer on python-can</text>
+  <text class="caption" x="32" y="60">One core / two fronts / stable Result + CanFrame contract</text>
+
+  <rect class="panel" x="48" y="96" width="180" height="72" rx="10"/>
+  <text class="label" x="138" y="128" text-anchor="middle">CLI</text>
+  <text class="sub" x="138" y="148" text-anchor="middle">xusbcan ...</text>
+
+  <rect class="panel" x="268" y="96" width="180" height="72" rx="10"/>
+  <text class="label" x="358" y="128" text-anchor="middle">MCP</text>
+  <text class="sub" x="358" y="148" text-anchor="middle">xusbcan-mcp</text>
+
+  <rect class="panel-accent" x="88" y="220" width="320" height="88" rx="10"/>
+  <text class="label" x="248" y="254" text-anchor="middle">Session / commands</text>
+  <text class="sub" x="248" y="276" text-anchor="middle">aliases / open-close / monitor</text>
+  <text class="sub" x="248" y="294" text-anchor="middle">periodic / scenario / filters</text>
+
+  <rect class="panel" x="520" y="220" width="200" height="88" rx="10"/>
+  <text class="label" x="620" y="258" text-anchor="middle">python-can</text>
+  <text class="sub" x="620" y="280" text-anchor="middle">interface / Bus API</text>
+
+  <rect class="bus" x="780" y="232" width="132" height="64" rx="10"/>
+  <text class="label" x="846" y="270" text-anchor="middle">CAN bus</text>
+
+  <path class="arrow" d="M138 168 V210"/>
+  <path class="arrow" d="M358 168 V210"/>
+  <path class="arrow" d="M408 264 H512"/>
+  <path class="arrow" d="M720 264 H772"/>
+
+  <text class="caption" x="32" y="392">Vendor drivers/SDKs stay outside this layer; adapters only under adapters/&lt;vendor&gt;/</text>
+</svg>

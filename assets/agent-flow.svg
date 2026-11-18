@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="320" viewBox="0 0 960 320" role="img" aria-labelledby="title desc">
+  <title id="title">Agent to CAN bus flow</title>
+  <desc id="desc">AI Agent calls MCP or CLI, then Session, then the bus</desc>
+  <defs>
+    <style>
+      .bg { fill: #1b1f24; }
+      .box { fill: #252b33; stroke: #3d4654; stroke-width: 1.5; }
+      .box-a { fill: #2a3340; stroke: #5b8def; stroke-width: 1.75; }
+      .box-b { fill: #1f2a24; stroke: #3d7a5a; stroke-width: 1.5; }
+      .title { fill: #e8eef7; font: 700 18px 'Segoe UI', system-ui, sans-serif; }
+      .label { fill: #e8eef7; font: 600 14px 'Segoe UI', system-ui, sans-serif; }
+      .sub { fill: #9aa7b8; font: 400 11px 'Segoe UI', system-ui, sans-serif; }
+      .arrow { stroke: #7f8b9c; stroke-width: 2.25; fill: none; marker-end: url(#ah); }
+      .caption { fill: #7f8b9c; font: 400 11px 'Segoe UI', system-ui, sans-serif; }
+    </style>
+    <marker id="ah" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L6,3 L0,6 Z" fill="#7f8b9c"/>
+    </marker>
+  </defs>
+  <rect class="bg" width="960" height="320" rx="12"/>
+  <text class="title" x="32" y="40">Agent -&gt; MCP / CLI -&gt; Session -&gt; Bus</text>
+  <text class="caption" x="32" y="60">Structured JSON results for programmatic branching</text>
+
+  <rect class="box-a" x="36" y="120" width="140" height="80" rx="10"/>
+  <text class="label" x="106" y="156" text-anchor="middle">AI Agent</text>
+  <text class="sub" x="106" y="178" text-anchor="middle">Skill / tools</text>
+
+  <rect class="box" x="230" y="92" width="150" height="56" rx="10"/>
+  <text class="label" x="305" y="126" text-anchor="middle">MCP</text>
+
+  <rect class="box" x="230" y="172" width="150" height="56" rx="10"/>
+  <text class="label" x="305" y="206" text-anchor="middle">CLI</text>
+
+  <rect class="box-a" x="460" y="120" width="180" height="80" rx="10"/>
+  <text class="label" x="550" y="156" text-anchor="middle">Session</text>
+  <text class="sub" x="550" y="178" text-anchor="middle">shared core</text>
+
+  <rect class="box-b" x="720" y="120" width="180" height="80" rx="10"/>
+  <text class="label" x="810" y="156" text-anchor="middle">CAN Bus</text>
+  <text class="sub" x="810" y="178" text-anchor="middle">via python-can</text>
+
+  <path class="arrow" d="M176 150 H222"/>
+  <path class="arrow" d="M176 170 C200 170 200 120 230 120"/>
+  <path class="arrow" d="M176 170 C200 170 200 200 230 200"/>
+  <path class="arrow" d="M380 120 H452"/>
+  <path class="arrow" d="M380 200 H452"/>
+  <path class="arrow" d="M640 160 H712"/>
+
+  <text class="caption" x="32" y="290">Bench / lab use - authorize the network before transmit</text>
+</svg>

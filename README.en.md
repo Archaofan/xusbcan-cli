@@ -23,9 +23,13 @@ The **goal** is for xusbcan-cli to become a reliable bridge between AI and autom
 - **python-can first**: set `interface` for backends already declared; register a model only when you need a channel map or fixed options
 - **Installable Agent Skill**: identify the model first; vendor pitfalls live in per-model files
 
+![Agent to bus flow](assets/agent-flow.svg)
+
 ## What the session layer adds
 
 This project sits on python-can (or a first-party backend that still exposes `can.Bus`). It does **not** reimplement the CAN protocol stack. It adds:
+
+![Session layer on python-can](assets/architecture.svg)
 
 - **Config and aliases**: logical device names in `xusbcan.toml`
 - **Session lifecycle**: open/close per alias, multi-device; shutdown stops periodics and bounded monitors
@@ -89,6 +93,10 @@ xusbcan scenario --file steps.json
 xusbcan scenario --dir scenarios/
 ```
 
+![CLI lab demo](assets/demo-cli.png)
+
+*Bench / lab demo (paths redacted; not in-vehicle)*
+
 `periodic` stops after `--duration`. `scenario` runs send→wait→send in one process; `--dir` batch-runs JSON files by name. Use MCP when the session must stay open across calls.
 
 ### MCP
@@ -98,6 +106,10 @@ xusbcan-mcp
 ```
 
 Agents use `open_device`, `send_frame`, `receive_frame`, `monitor`, `periodic_start`, and related tools. `periodic_start` **requires** `duration_s` (max 300 seconds). Longer jobs belong in a local resident process with an authorized bench.
+
+![MCP lab demo](assets/demo-mcp.png)
+
+*Bench / lab demo: MCP tool transcript (paths redacted; not a Cursor UI screenshot; not in-vehicle)*
 
 Set each adapter’s env vars plus `XUSBCAN_CONFIG` when registering the server (see vendor sections below).
 

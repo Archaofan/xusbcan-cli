@@ -23,9 +23,13 @@
 - **python-can 优先**：已有后端可直接写 `interface`；需要通道映射或专有参数时再登记型号
 - **可安装 Agent Skill**：先确认型号，再调用；厂商踩坑按型号分文件
 
+![Agent to bus flow](assets/agent-flow.svg)
+
 ## 会话层做什么
 
 本项目在 python-can（或自研后端给出的 `can.Bus`）之上提供**统一会话与命令层**，而不是再实现一套总线协议栈。大致包括：
+
+![Session layer on python-can](assets/architecture.svg)
 
 - **配置与别名**：`xusbcan.toml` 里用逻辑名引用设备，打开参数集中管理
 - **会话生命周期**：按别名 `open` / `close`，多卡并存；关闭时收回周期任务与有界监听
@@ -101,6 +105,10 @@ xusbcan scenario --file steps.json
 xusbcan scenario --dir scenarios/
 ```
 
+![CLI lab demo](assets/demo-cli.png)
+
+*台架 / lab 演示（路径已脱敏；非实车）*
+
 `periodic` 在本进程发满 `--duration` 后停止。`scenario` 在同进程编排发→等→再发；`--dir` 按文件名批跑。跨多次调用保持会话时用 MCP。
 
 ### MCP
@@ -110,6 +118,10 @@ xusbcan-mcp
 ```
 
 Agent 使用 `open_device`、`send_frame`、`receive_frame`、`monitor`、`periodic_start` 等工具。`periodic_start` **必须**带 `duration_s`（上限 300 秒）。更长任务请用本机常驻进程，并明确授权台架环境。
+
+![MCP lab demo](assets/demo-mcp.png)
+
+*台架 / lab 演示：MCP 工具调用成绩单（配置路径已脱敏；非 Cursor UI 截图；非实车）*
 
 注册时按所用适配器设置对应环境变量与 `XUSBCAN_CONFIG`（见下方各厂商小节）。
 
