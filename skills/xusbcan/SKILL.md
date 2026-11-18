@@ -5,7 +5,7 @@ license: MIT
 compatibility: Python 3.11+. Drivers depend on the backend named in the config. Read a model reference only when that model is the one configured.
 metadata:
   author: xusbcan-cli
-  version: "1.9"
+  version: "1.9.1"
 ---
 
 # xusbcan
@@ -38,7 +38,7 @@ When not to use: changing product firmware, or editing ignored local design note
    - `vendor = "zlg"` and `model = "USBCAN-II"` → [references/zlg-usbcan-ii.md](references/zlg-usbcan-ii.md)
    - `vendor = "vector"` and `model = "VN1640A"` → [references/vector-vn1640a.md](references/vector-vn1640a.md)
    - `vendor = "chuangxin"` and `model = "USB_CAN-2C"` → [references/chuangxin-usb-can-2c.md](references/chuangxin-usb-can-2c.md)
-   - `vendor = "chuangxin"` and `model = "USB_CAN-2A-GD"` → same reference for setup; confirm hardware before claiming verification
+   - `vendor = "chuangxin"` and `model = "USB_CAN-2A-GD"` → same reference for setup; hardware verification is suspended—do not claim verified
    - Bare `interface = "zlg"` without a model: prefer the model that matches `device_type` in `extra` (21 → 2E-U, 4 → II). Do not open the wrong ZLG reference for PEAK, Vector, Chuangxin, or socketcan.
    - Bare `interface = "vector"` aimed at a VN1640A: read the VN1640A reference for channel-index rules. Do not apply ZLG or Chuangxin SDK variables. Do not assume an unverified Vector model shares the same bench results.
    - Bare `interface = "chuangxin"`: require `CHUANGXIN_SDK_DIR` and channels `0`/`1`. Do not use `ZLG_SDK_DIR` for this backend.

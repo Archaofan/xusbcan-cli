@@ -1,6 +1,6 @@
 # Chuangxin USB_CAN-2C
 
-Read this file when the device is `vendor = "chuangxin"` and `model = "USB_CAN-2C"`. For `USB_CAN-2A-GD`, use the same backend rules, but treat hardware verification as separate until that model is marked verified. Do not open this card with a ZLG `vendor` / `model`, and do not set `ZLG_SDK_DIR` for it.
+Read this file when the device is `vendor = "chuangxin"` and `model = "USB_CAN-2C"`. For `USB_CAN-2A-GD`, use the same backend rules; hardware verification for that model is suspended—do not claim it verified. Do not open this card with a ZLG `vendor` / `model`, and do not set `ZLG_SDK_DIR` for it.
 
 ## Setup
 

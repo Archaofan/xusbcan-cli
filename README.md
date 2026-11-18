@@ -170,7 +170,7 @@ nominal = 250000
 
 ### 创芯（Chuangxin）
 
-适用于已确认的 **USB_CAN-2C**（**USB_CAN-2A-GD** 已登记为同后端族，真机以实物为准）。
+适用于已确认的 **USB_CAN-2C**（**USB_CAN-2A-GD** 已登记为同后端族，**真机验证暂挂起**，勿标为已确认）。
 
 需要：
 
@@ -220,7 +220,7 @@ python-can 已声明的后端（socketcan、slcan、Kvaser、`pcan` 等）可直
 | Vector | VN1640A | 真机已确认 | python-can `vector`；通道为 XL 全局索引 |
 | Vector | VN1630 | 已登记 | python-can `vector` |
 | 创芯 | USB_CAN-2C | 真机已确认 | 本仓库 ControlCAN 后端；需 `CHUANGXIN_SDK_DIR` |
-| 创芯 | USB_CAN-2A-GD | 已登记 | 与 2C 同后端族 |
+| 创芯 | USB_CAN-2A-GD | 已登记（真机验证挂起） | 与 2C 同后端族；验证暂挂起 |
 | PEAK | PCAN-USB | 已登记 | python-can `pcan` |
 
 上表是带登记或真机说明的型号，不是准入白名单。其它 python-can 后端同样可通过 `interface` 打开。python-can 无法打开的卡才需要新后端；若新后端要求用户自备 SDK，请在免责声明中追加该厂商。

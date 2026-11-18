@@ -169,7 +169,7 @@ You may also set `interface = "vector"` directly.
 
 ### Chuangxin
 
-For verified **USB_CAN-2C** (**USB_CAN-2A-GD** is registered on the same backend family; confirm on hardware).
+For verified **USB_CAN-2C** (**USB_CAN-2A-GD** is registered on the same backend family; **hardware verification is suspended**—do not mark it verified).
 
 Needs:
 
@@ -219,7 +219,7 @@ Backends python-can already declares (socketcan, slcan, Kvaser, `pcan`, …) can
 | Vector | VN1640A | Verified | python-can `vector`; XL global channel index |
 | Vector | VN1630 | Registered | python-can `vector` |
 | Chuangxin | USB_CAN-2C | Verified | ControlCAN backend; needs `CHUANGXIN_SDK_DIR` |
-| Chuangxin | USB_CAN-2A-GD | Registered | Same backend family as 2C |
+| Chuangxin | USB_CAN-2A-GD | Registered (HW verification suspended) | Same backend family as 2C; verification on hold |
 | PEAK | PCAN-USB | Registered | python-can `pcan` |
 
 This table lists registered or verified models; it is not an allow-list. Other python-can backends open via `interface` as well. A card python-can cannot open needs a new backend; if that backend requires a user-supplied SDK, add the vendor to the disclaimer.
