@@ -14,6 +14,10 @@ build/
 .idea/
 .vscode/
 
+# Local publisher binary (download as needed)
+mcp-publisher.exe
+mcp-publisher
+
 # 厂商 SDK 二进制（不进仓库，用户自取）
 *.dll
 *.lib

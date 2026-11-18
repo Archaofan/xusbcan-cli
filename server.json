@@ -1,0 +1,50 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.Archaofan/xusbcan",
+  "title": "xusbcan",
+  "description": "Bench CAN for AI agents via CLI/MCP on python-can. Local stdio; user-supplied drivers.",
+  "repository": {
+    "url": "https://github.com/Archaofan/xusbcan-cli",
+    "source": "github"
+  },
+  "version": "0.1.3",
+  "packages": [
+    {
+      "registryType": "pypi",
+      "registryBaseUrl": "https://pypi.org",
+      "identifier": "xusbcan-cli",
+      "version": "0.1.3",
+      "runtimeHint": "uvx",
+      "runtimeArguments": [
+        {
+          "type": "named",
+          "name": "--with",
+          "value": "mcp>=2.0"
+        }
+      ],
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "XUSBCAN_CONFIG",
+          "description": "Path to xusbcan.toml (device aliases). Required for real hardware.",
+          "isRequired": false,
+          "format": "string"
+        },
+        {
+          "name": "ZLG_SDK_DIR",
+          "description": "Directory with vendor ZLG SDK (zlgcan.dll). User-supplied; optional.",
+          "isRequired": false,
+          "format": "string"
+        },
+        {
+          "name": "CHUANGXIN_SDK_DIR",
+          "description": "Directory with Chuangxin ControlCAN.dll. User-supplied; optional.",
+          "isRequired": false,
+          "format": "string"
+        }
+      ]
+    }
+  ]
+}
