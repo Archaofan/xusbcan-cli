@@ -586,6 +586,68 @@ def test_close_waits_for_timer_expire_stop():
     assert session.state is SessionState.CLOSED
 
 
+def test_close_rejects_periodic_stop_started_after_closing():
+    """_closing 之后新进入的 periodic_stop 不得进底层 stop；由 close 统一清理。"""
+    import threading
+    import time
+
+    from xusbcan.core.session import SessionState
+
+    mgr = _virtual_manager()
+    mgr.open("can0")
+    session = mgr.get("can0")
+    assert session is not None
+    f = CanFrame(arbitration_id=0x123, data=b"\x01")
+    assert periodic_start(mgr, "can0", "p1", f, 0.1).status == "ok"
+    pt = session.pop_periodic("p1")
+    assert pt is not None
+    real = pt.task
+    stop_threads: list[str] = []
+    lock = threading.Lock()
+
+    class _CountStop:
+        def stop(self) -> None:
+            with lock:
+                stop_threads.append(threading.current_thread().name)
+            real.stop()
+
+    pt.task = _CountStop()
+    session.add_periodic("p1", pt)
+
+    closing_seen = threading.Event()
+    close_box: dict = {}
+
+    def closer() -> None:
+        # 让主线程有机会在 close 循环前观察到 _closing
+        def _mark() -> None:
+            deadline = time.time() + 2.0
+            while time.time() < deadline:
+                if session._closing:
+                    closing_seen.set()
+                    return
+                time.sleep(0.001)
+
+        marker = threading.Thread(target=_mark, name="closing-marker")
+        marker.start()
+        close_box["r"] = session.close()
+        marker.join(timeout=2.0)
+
+    t_close = threading.Thread(target=closer, name="session-close")
+    t_close.start()
+    assert closing_seen.wait(timeout=2.0)
+
+    late_stop = periodic_stop(mgr, "can0", "p1")
+    assert late_stop.status == "error"
+    assert late_stop.error is not None
+    assert late_stop.error.code == "DEVICE_NOT_OPEN"
+
+    t_close.join(timeout=2.0)
+    assert close_box["r"].status == "ok"
+    assert session.state is SessionState.CLOSED
+    with lock:
+        assert stop_threads == ["session-close"]
+
+
 def test_open_does_not_replace_error_session_with_failed_periodic():
     from xusbcan.core.session import SessionState
 

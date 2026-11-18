@@ -80,13 +80,22 @@ class Session:
     def _accepts_periodic(self) -> bool:
         return self.state is SessionState.OPEN and not self._closing
 
-    def begin_periodic_op(self) -> bool:
+    def begin_periodic_op(self, *, during_close: bool = False) -> bool:
         """登记一笔在途周期操作（启动回滚 / stop / Timer expire）。
 
-        CLOSED 拒绝；``_closing`` 期间仍允许，以便关闭等待这些操作完成。
+        - CLOSED 一律拒绝。
+        - OPEN 且 ``_closing``：外部 stop/start/Timer 拒绝，由 ``close()`` 统一清理；
+          仅 ``during_close=True``（关闭流程自身）可新进入。
+        - ERROR（含关闭失败后）：允许外部 stop，以便清理后重试 close。
         """
         with self._lock:
             if self.state is SessionState.CLOSED:
+                return False
+            if (
+                self._closing
+                and self.state is SessionState.OPEN
+                and not during_close
+            ):
                 return False
             self._inflight_periodic_ops += 1
             return True
@@ -248,7 +257,7 @@ class Session:
 
             stop_failures: list[str] = []
             for name in names:
-                if not self.begin_periodic_op():
+                if not self.begin_periodic_op(during_close=True):
                     stop_failures.append(f"{name}: session closed during stop")
                     continue
                 try:
