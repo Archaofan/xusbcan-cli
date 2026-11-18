@@ -145,10 +145,13 @@ def register_tools(mcp, manager: core.SessionManager) -> None:
             str, Field(description="Device alias from config / list_devices")
         ],
     ) -> str:
-        """Read session state for one alias (open/closed, features, receive owner).
+        """Read one configured alias: session state, features, and RX owner.
 
-        Read-only; does not open or close the device. Use list_devices to see all
-        aliases at once. Returns JSON Result with state/features/receive_owner.
+        Read-only. Does not open hardware or change filters. Use list_devices for
+        every alias's name/channel/opened flag; use this when you need one alias's
+        state even if it is still closed. Unknown alias returns SESSION_NOT_FOUND.
+        data.state is open, closed, or error. data.features has fd, channels, and
+        interface. data.receive_owner is null, or "monitor" while a capture holds RX.
         """
         return _json(core.status(manager, device))
 
@@ -158,12 +161,13 @@ def register_tools(mcp, manager: core.SessionManager) -> None:
             str, Field(description="Device alias from config / list_devices")
         ],
     ) -> str:
-        """Open (or reuse) a CAN session for the alias and keep it in-process.
+        """Open a CAN session for one alias and keep the bus in this process.
 
-        Needed before send_frame, receive_frame, monitor, filters, or periodic_*.
-        Idempotent while already open (returns reused=true). Pair with close_device
-        when finished. Hardware/SDK must be available on the host for real adapters;
-        virtual configs work without USB. Returns JSON Result.
+        Required before send_frame, receive_frame, monitor, filters, and periodic_*.
+        If the session is already open, returns data.reused=true and does not reopen.
+        If state is error, returns DEVICE_NOT_OPEN; close_device and retry. Success
+        data is {state: "open", reused: bool}. Real adapters need a host SDK; a
+        virtual config opens without USB. Does not send or receive frames.
         """
         return _json(core.open_session(manager, device))
 
@@ -173,11 +177,13 @@ def register_tools(mcp, manager: core.SessionManager) -> None:
             str, Field(description="Device alias from config / list_devices")
         ],
     ) -> str:
-        """Close the session for an alias and release bus resources.
+        """Close one open session: stop periodic TX and monitor, then shut the bus.
 
-        Stops ownership of the adapter channel for this process. Does not remove
-        the alias from config — call open_device again to resume. Prefer this over
-        abandoning an open session. Returns JSON Result.
+        Success data is {state: "closed"} and the alias stays in config for a later
+        open_device. Does not send frames and does not delete the device entry.
+        If a periodic task fails to stop, the session stays in error and is kept
+        so you can retry; it is not removed. Closing an alias that is not open
+        returns SESSION_NOT_FOUND.
         """
         return _json(core.close_session(manager, device))
 
@@ -240,11 +246,13 @@ def register_tools(mcp, manager: core.SessionManager) -> None:
             str, Field(description="Exact task name previously passed to periodic_start")
         ],
     ) -> str:
-        """Stop and remove one periodic TX task by name.
+        """Stop one named periodic TX task and drop it from the session.
 
-        Use after periodic_start when you need to free the TX path for send_frame
-        or end early before duration_s. periodic_list shows active names. Returns
-        JSON Result.
+        Use the exact name from periodic_start or periodic_list. Success data is
+        {name, stopped: true}. Unknown name returns SESSION_NOT_FOUND and changes
+        nothing. The session stays open; this does not call close_device. Stopping
+        frees a hardware periodic TX path so send_frame can work again. Session
+        must already be open (error state is allowed so a failed stop can be retried).
         """
         return _json(core.periodic_stop(manager, device, name))
 
@@ -254,10 +262,14 @@ def register_tools(mcp, manager: core.SessionManager) -> None:
             str, Field(description="Device alias from config / list_devices")
         ],
     ) -> str:
-        """List active periodic TX tasks for one open session.
+        """List periodic TX tasks registered on one already-open session.
 
-        Read-only. Use periodic_start / periodic_stop to change tasks. Returns
-        JSON Result with the task list.
+        Read-only: does not start, stop, or transmit. Use periodic_start to add a
+        task and periodic_stop to remove one by name. If the alias is not open,
+        returns SESSION_NOT_FOUND (error state is still listed so a failed stop
+        remains visible). data.tasks is an array; each item has name,
+        arbitration_id, data (lowercase hex, no spaces), is_extended, is_fd,
+        period_ms, and state. duration_s and stop_error appear only when set.
         """
         return _json(core.periodic_list(manager, device))
 
@@ -277,12 +289,14 @@ def register_tools(mcp, manager: core.SessionManager) -> None:
             Field(description="Match extended (29-bit) IDs when true; default false"),
         ] = False,
     ) -> str:
-        """Replace the session RX filter with one inclusive ID range.
+        """Replace this session's RX filter with one inclusive arbitration-ID range.
 
-        Requires open_device. Replaces any previous filter (not additive). To accept
-        all IDs again, call accept_all_frames — do not assume clearing filters
-        another way. Affects receive_frame / monitor / scenario waits. Returns
-        JSON Result.
+        Requires an open session. Replaces the previous filter; it does not add a
+        second range and does not transmit. To receive every ID again, call
+        accept_all_frames. receive_frame, monitor, and scenario waits then see only
+        IDs from start_id through end_id. Success data is
+        {start_id, end_id, is_extended, mode: "mask"}. A bus without set_filters
+        returns CAPABILITY_UNSUPPORTED.
         """
         return _json(core.set_frame_filter(manager, device, start_id, end_id, is_extended))
 
@@ -292,10 +306,12 @@ def register_tools(mcp, manager: core.SessionManager) -> None:
             str, Field(description="Device alias from config / list_devices")
         ],
     ) -> str:
-        """Clear the RX filter so the session accepts all CAN IDs again.
+        """Clear the RX ID filter so this open session accepts every CAN ID.
 
-        Requires open_device. Use after set_frame_filter when you need full traffic;
-        opposite of set_frame_filter. Returns JSON Result.
+        Requires an open session. Use this after set_frame_filter; it is the only
+        supported way back to full traffic. Does not transmit and does not close
+        the session. Success data is {accept_all: true, mode: "mask"}. A bus
+        without set_filters returns CAPABILITY_UNSUPPORTED.
         """
         return _json(core.accept_all_frames(manager, device))
 
