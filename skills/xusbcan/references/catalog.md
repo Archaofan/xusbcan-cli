@@ -13,10 +13,10 @@ Each model page is ordered: **Quick start** → **How this backend behaves** →
 
 | Config match | Open this file | Notes |
 |--------------|----------------|--------|
-| `vendor=zlg`, `model=USBCAN-2E-U` | [zlg-usbcan-2e-u.md](zlg-usbcan-2e-u.md) | |
-| `vendor=zlg`, `model=USBCAN-II` | [zlg-usbcan-ii.md](zlg-usbcan-ii.md) | |
-| `interface=zlg` and `extra.device_type=21` (or default 2E-U) | [zlg-usbcan-2e-u.md](zlg-usbcan-2e-u.md) | Prefer an explicit `model` when possible |
-| `interface=zlg` and `extra.device_type=4` | [zlg-usbcan-ii.md](zlg-usbcan-ii.md) | |
+| `vendor=zlg`, `model=USBCAN-2E-U` | [zlg-usbcan-2e-u.md](zlg-usbcan-2e-u.md) | Dual-channel `0`/`1`; do not re-ID from `GetDeviceInf` |
+| `vendor=zlg`, `model=USBCAN-II` | [zlg-usbcan-ii.md](zlg-usbcan-ii.md) | Dual-channel `0`/`1` |
+| `interface=zlg` and `extra.device_type=21` (or default 2E-U) | [zlg-usbcan-2e-u.md](zlg-usbcan-2e-u.md) | Prefer explicit `model`; same as 2E-U row |
+| `interface=zlg` and `extra.device_type=4` | [zlg-usbcan-ii.md](zlg-usbcan-ii.md) | Same as USBCAN-II row |
 | `vendor=vector`, `model=VN1640A` | [vector-vn1640a.md](vector-vn1640a.md) | |
 | `interface=vector` for a VN1640A | [vector-vn1640a.md](vector-vn1640a.md) | Do not treat unverified Vector models as covered |
 | `vendor=vector`, `model=VN1630` | *(no dedicated page)* | Registered only; use python-can `vector` docs; do not apply VN1640A field notes |

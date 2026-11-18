@@ -19,7 +19,7 @@ nominal = 500000
 ```
 
 3. One-shot: `xusbcan send bus0 --id 0x123 --data "01 02"` (see [examples.md](examples.md) for MCP / scenario).
-4. Channel / bitrate / `extra` rules for **this** card only: …
+4. Channel / bitrate / `extra` rules for **this** card only. Multi-port cards: document port→`channel` mapping in Quick start / How this backend behaves; treat snippet `channel` as a placeholder. If vendor device-info APIs can misreport model or channel count, state that under How this backend behaves (do not rely on Field notes alone).
 
 ## How this backend behaves in xusbcan
 

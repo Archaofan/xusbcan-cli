@@ -5,7 +5,8 @@ Read this file when the device is `vendor = "chuangxin"` and `model = "USB_CAN-2
 ## Quick start
 
 1. Install the Chuangxin USB driver so the host enumerates the adapter. Set `CHUANGXIN_SDK_DIR` to the user-installed directory that contains Chuangxin’s `ControlCAN.dll`. Load that DLL by absolute path via the env var—never hard-code a disk path in committed files. Match DLL bitness to the Python process (64-bit with 64-bit Python).
-2. Config alias:
+2. This adapter has **two** CAN ports. Confirm which physical port is cabled, then set `channel` (`0` or `1`). The `0` in the snippet is a placeholder.
+3. Config alias:
 
 ```toml
 [[devices]]
@@ -16,9 +17,9 @@ channel = 0
 nominal = 500000
 ```
 
-Channels are `0` or `1`. The model shortcut selects interface `chuangxin` and device type `4` for this product family. Classic CAN only in the usual path (no CAN FD data bitrate via this shortcut).
+The model shortcut selects interface `chuangxin` and device type `4` for this product family. Classic CAN only in the usual path (no CAN FD data bitrate via this shortcut).
 
-3. One-shot: `xusbcan send cx0 --id 0x123 --data "01 02"` then `xusbcan receive cx0 --timeout 1`. Session / scenario / MCP shapes: [examples.md](examples.md).
+4. One-shot: `xusbcan send cx0 --id 0x123 --data "01 02"` then `xusbcan receive cx0 --timeout 1`. Session / scenario / MCP shapes: [examples.md](examples.md).
 
 If the user already named USB_CAN-2C (or the config does), open that alias. If the config only says a vague dual-channel USB-CAN name without a vendor, ask which vendor and model before opening—do not guess by trying another vendor’s entry first.
 

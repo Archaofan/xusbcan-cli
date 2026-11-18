@@ -151,11 +151,11 @@ set ZLG_SDK_DIR=D:\path\to\zlg-sdk-dir
 name = "bus0"
 vendor = "zlg"
 model = "USBCAN-2E-U"   # 或 "USBCAN-II"
-channel = 1
+channel = 1             # 按实际接线：CAN1→0，CAN2→1
 nominal = 250000
 ```
 
-滤波与周期发送在两种型号上的路径不同，见 Agent Skill 中对应参考页。
+2E-U / II 均为双通道，`channel` 必须对应实际接线口。型号以铭牌与配置 `model` 为准；不要根据 SDK `GetDeviceInf` 一类字段改判型号或改走 CAN FD。滤波与周期发送路径因型号而异，见 Agent Skill 对应参考页。
 
 ```json
 {

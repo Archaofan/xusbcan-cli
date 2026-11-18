@@ -12,7 +12,7 @@ compatibility: >
   read catalog.md, then at most one model reference.
 metadata:
   author: xusbcan-cli
-  version: "2.1.0"
+  version: "2.1.1"
 ---
 
 # xusbcan
@@ -25,6 +25,8 @@ metadata:
 4. Shared optional pages: [references/examples.md](references/examples.md) (how to call), [references/pitfalls.md](references/pitfalls.md) (contracts + labeled field notes).
 
 On each model page, prefer **Quick start** and **How this backend behaves**. Treat **Field notes** as earlier contributors’ bench reports: they may not reproduce and are not formal “unsupported” claims—match the current symptom before acting.
+
+**Channel is part of open readiness:** Published TOML snippets often use `channel = 0` as a shape. On dual-channel cards, confirm which physical port is wired and that the alias `channel` matches it before opening. Model-page rules (including what not to trust from vendor device-info APIs) live on the catalog-selected page.
 
 Vendor SDK variables and channel rules live **only** on the model page. Copying another card’s env var or timing into this session is wrong.
 

@@ -22,6 +22,10 @@ Hold one process for a long job: MCP `open_device`, or one `can.Bus` / core sess
 
 Driver, environment variables, channel type, and `extra` keys belong to the backend named in the config. Copying one vendor's SDK variable or channel string onto another backend will not open the device. Keep SDK directories separate; do not load two different vendor DLLs in one process. Exact env names and channel rules: [catalog.md](catalog.md) → matching model page only.
 
+### Dual-channel: match `channel` to the cable before other notes
+
+Published TOML / resident snippets often use `channel = 0` as a placeholder. On dual-channel adapters, a mismatched `channel` can surface as InitCAN / empty-handle / transmit-zero-frame failures even when `model` and bitrate are correct. Confirm the physical port, set `channel`, then open. Do not treat filter or no-ACK field notes as the first explanation.
+
 ### README “verified” is a finite bench label
 
 A model marked verified on hardware in the README still has a finite bench scope. Do not invent error-frame injection, soak guarantees, or in-vehicle authorization from that label. Stay inside the public CLI / MCP commands and the matching model reference.

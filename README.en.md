@@ -138,11 +138,11 @@ set ZLG_SDK_DIR=D:\path\to\zlg-sdk-dir
 name = "bus0"
 vendor = "zlg"
 model = "USBCAN-2E-U"   # or "USBCAN-II"
-channel = 1
+channel = 1             # wired port: CAN1→0, CAN2→1
 nominal = 250000
 ```
 
-Filter and periodic paths differ by model; see the Agent Skill references.
+2E-U / II are dual-channel; `channel` must match the cabled port. Trust the label / config `model`—do not re-identify the card or switch to CAN FD from SDK `GetDeviceInf`-style fields. Filter and periodic paths differ by model; see the Agent Skill references.
 
 ```json
 {
