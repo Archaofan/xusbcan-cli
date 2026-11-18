@@ -223,6 +223,160 @@ def test_periodic_rejects_period_below_minimum_and_task_cap():
     assert "上限" in over.error.message
 
 
+def test_close_all_keeps_failed_sessions():
+    from xusbcan.core.session import SessionState
+
+    mgr = _virtual_manager()
+    mgr.open("can0")
+    f = CanFrame(arbitration_id=0x123, data=b"\x01")
+    assert periodic_start(mgr, "can0", "p1", f, 0.1).status == "ok"
+    session = mgr.get("can0")
+    assert session is not None
+    pt = session.pop_periodic("p1")
+    assert pt is not None
+    real = pt.task
+
+    class _Boom:
+        def stop(self) -> None:
+            raise RuntimeError("close_all boom")
+
+    pt.task = _Boom()
+    session.add_periodic("p1", pt)
+    results = mgr.close_all()
+    assert len(results) == 1
+    assert results[0].status == "error"
+    assert mgr.get("can0") is session
+    assert session.state is SessionState.ERROR
+    pt.task = real
+    assert periodic_stop(mgr, "can0", "p1").status == "ok"
+    assert mgr.close("can0").status == "ok"
+
+
+def test_session_close_keeps_monitor_when_periodic_stop_fails():
+    from xusbcan.core.monitor import Monitor
+    from xusbcan.core.session import SessionState
+
+    mgr = _virtual_manager()
+    mgr.open("can0")
+    session = mgr.get("can0")
+    assert session is not None
+    monitor = Monitor(name="can0", bus=session.bus, duration_s=30.0, max_frames=10)
+    monitor.start()
+    session.set_monitor(monitor)
+    session.acquire_receive("monitor")
+    f = CanFrame(arbitration_id=0x123, data=b"\x01")
+    assert periodic_start(mgr, "can0", "p1", f, 0.1).status == "ok"
+    pt = session.pop_periodic("p1")
+    assert pt is not None
+    real = pt.task
+
+    class _Boom:
+        def stop(self) -> None:
+            raise RuntimeError("monitor+periodic")
+
+    pt.task = _Boom()
+    session.add_periodic("p1", pt)
+    closed = session.close()
+    assert closed.status == "error"
+    assert session.monitor is monitor
+    assert session.state is SessionState.ERROR
+    pt.task = real
+    assert periodic_stop(mgr, "can0", "p1").status == "ok"
+    assert session.close().status == "ok"
+
+
+def test_periodic_timer_expire_records_stop_failed():
+    import time
+
+    mgr = _virtual_manager()
+    mgr.open("can0")
+    session = mgr.get("can0")
+    assert session is not None
+    f = CanFrame(arbitration_id=0x123, data=b"\x01")
+    assert periodic_start(mgr, "can0", "p1", f, 0.05, duration_s=0.05).status == "ok"
+    pt = session.pop_periodic("p1")
+    assert pt is not None
+
+    class _Boom:
+        def stop(self) -> None:
+            raise RuntimeError("expire boom")
+
+    # 保留 timer：只替换底层 task，让 expire 回调走到 boom
+    pt.task = _Boom()
+    session.add_periodic("p1", pt)
+    deadline = time.time() + 2.0
+    seen = None
+    while time.time() < deadline:
+        tasks = periodic_list(mgr, "can0").data["tasks"]
+        if tasks and tasks[0].get("state") == "stop_failed":
+            seen = tasks[0]
+            break
+        time.sleep(0.02)
+    assert seen is not None
+    assert "expire boom" in (seen.get("stop_error") or "")
+    # 清理：换成可停 task
+    pt2 = session.pop_periodic(seen["name"])
+    assert pt2 is not None
+
+    class _Ok:
+        def stop(self) -> None:
+            return None
+
+    pt2.task = _Ok()
+    if pt2._timer is not None:
+        pt2._timer.cancel()
+        pt2._timer = None
+    session.add_periodic(seen["name"], pt2)
+    assert periodic_stop(mgr, "can0", seen["name"]).status == "ok"
+
+
+def test_periodic_reserve_is_atomic_under_contention():
+    import threading
+
+    from xusbcan.core.periodic import MAX_PERIODIC_TASKS
+
+    mgr = _virtual_manager()
+    mgr.open("can0")
+    f = CanFrame(arbitration_id=0x123, data=b"\x01")
+    barrier = threading.Barrier(8)
+    outcomes: list[str] = []
+    lock = threading.Lock()
+
+    def worker(i: int) -> None:
+        barrier.wait()
+        result = periodic_start(mgr, "can0", f"c{i}", f, 0.1)
+        with lock:
+            outcomes.append(result.status)
+
+    threads = [threading.Thread(target=worker, args=(i,)) for i in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert outcomes.count("ok") == 8
+    assert len(periodic_list(mgr, "can0").data["tasks"]) == 8
+
+    # 填满后并发再冲仍不得超过上限
+    for i in range(MAX_PERIODIC_TASKS - 8):
+        assert periodic_start(mgr, "can0", f"f{i}", f, 0.1).status == "ok"
+    barrier2 = threading.Barrier(6)
+    more: list[str] = []
+
+    def overflow(i: int) -> None:
+        barrier2.wait()
+        result = periodic_start(mgr, "can0", f"o{i}", f, 0.1)
+        with lock:
+            more.append(result.status)
+
+    threads = [threading.Thread(target=overflow, args=(i,)) for i in range(6)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert more.count("ok") == 0
+    assert len(periodic_list(mgr, "can0").data["tasks"]) == MAX_PERIODIC_TASKS
+
+
 class _FailingBus(can.BusABC):
     """假适配器：第 fail_at 帧发送抛 CanOperationError，覆盖「部分发送」分支。"""
 

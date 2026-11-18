@@ -70,6 +70,7 @@ class Session:
     state: SessionState = SessionState.OPEN
     receive_owner: str | None = None  # "monitor"（有界采集运行时占用）
     periodic: dict[str, Any] = field(default_factory=dict)  # name -> PeriodicTask
+    _periodic_reserved: set[str] = field(default_factory=set, repr=False)
     monitor: Any | None = None  # 运行中的 Monitor
     _lock: threading.RLock = field(default_factory=threading.RLock, repr=False)
 
@@ -104,10 +105,54 @@ class Session:
     def add_periodic(self, name: str, task: Any) -> bool:
         """登记一条周期任务；名字已存在返回 False。"""
         with self._lock:
-            if name in self.periodic:
+            if name in self.periodic or name in self._periodic_reserved:
                 return False
             self.periodic[name] = task
             return True
+
+    def reserve_periodic(self, name: str, *, max_tasks: int) -> Result:
+        """原子预留名称与容量（启动底层任务前调用）。"""
+        with self._lock:
+            if name in self.periodic or name in self._periodic_reserved:
+                return Result.err(
+                    ErrorCode.INVALID_ARGUMENT,
+                    f"周期任务已存在: {name}",
+                    context={"alias": self.name, "name": name},
+                )
+            used = len(self.periodic) + len(self._periodic_reserved)
+            if used >= max_tasks:
+                return Result.err(
+                    ErrorCode.INVALID_ARGUMENT,
+                    f"周期任务数已达上限 {max_tasks}",
+                    context={"alias": self.name, "max_tasks": max_tasks},
+                )
+            self._periodic_reserved.add(name)
+            return Result.ok({"name": name, "reserved": True})
+
+    def commit_periodic(self, name: str, task: Any) -> bool:
+        """把预留位换成真实任务。"""
+        with self._lock:
+            if name not in self._periodic_reserved:
+                return False
+            self._periodic_reserved.discard(name)
+            self.periodic[name] = task
+            return True
+
+    def cancel_periodic_reserve(self, name: str) -> None:
+        with self._lock:
+            self._periodic_reserved.discard(name)
+
+    def restore_periodic(self, name: str, task: Any) -> str:
+        """停止失败后放回任务。冲突时用唯一后缀登记，不覆盖、不吞掉另一个任务。"""
+        with self._lock:
+            existing = self.periodic.get(name)
+            if existing is None or existing is task:
+                self.periodic[name] = task
+                self._periodic_reserved.discard(name)
+                return name
+            alt = f"{name}__stop_failed_{id(task)}"
+            self.periodic[alt] = task
+            return alt
 
     def pop_periodic(self, name: str) -> Any:
         with self._lock:
@@ -122,16 +167,14 @@ class Session:
 
         周期任务停止失败时：重新登记失败任务、会话进入 error、**不**继续 shutdown，
         也不报告关闭成功——与 ``periodic.stop`` 一致，避免「报告已关但周期可能仍在跑」。
-        设备句柄的引用归还由 backend 的 shutdown() 内部完成（最后一路才真正关设备）。
+        Monitor 仅在成功 join 后清除；周期停止失败时保留引用以便重试 close。
         """
         with self._lock:
             if self.state is SessionState.CLOSED:
                 return Result.ok({"state": self.state.value})
             names = list(self.periodic.keys())
-            monitor = self.monitor
-            self.monitor = None
 
-        # 1. 停周期任务：任一失败则保留登记并中止关闭
+        # 1. 停周期任务：任一失败则保留登记与 Monitor，中止关闭
         stop_failures: list[str] = []
         for name in names:
             task = self.pop_periodic(name)
@@ -140,15 +183,8 @@ class Session:
             try:
                 task.stop()
             except Exception as e:
-                if not self.add_periodic(name, task):
-                    existing = self.pop_periodic(name)
-                    if existing is not None and existing is not task:
-                        try:
-                            existing.stop()
-                        except Exception:
-                            pass
-                    self.add_periodic(name, task)
-                stop_failures.append(f"{name}: {e}")
+                restored = self.restore_periodic(name, task)
+                stop_failures.append(f"{restored}: {e}")
 
         if stop_failures:
             with self._lock:
@@ -163,7 +199,9 @@ class Session:
                 detail="; ".join(stop_failures),
             )
 
-        # 2. 停监听（先置停止标志再 join，带超时）
+        # 2. 停监听（成功 join 后再摘掉会话上的引用）
+        with self._lock:
+            monitor = self.monitor
         if monitor is not None:
             monitor.stop()
             if not monitor.join(timeout=CLOSE_TIMEOUT_S):
@@ -174,6 +212,9 @@ class Session:
                     f"关闭监听超时: {self.name}",
                     context={"alias": self.name},
                 )
+            with self._lock:
+                if self.monitor is monitor:
+                    self.monitor = None
 
         # 3. shutdown（含适配器硬件周期清理；失败不得报成功）
         try:
@@ -189,6 +230,7 @@ class Session:
 
         with self._lock:
             self.receive_owner = None
+            self.monitor = None
             self.state = SessionState.CLOSED
         return Result.ok({"state": self.state.value})
 
@@ -272,15 +314,31 @@ class SessionManager:
         # 失败时保留会话（state=error），该路上后续发送被拒绝
         return result
 
-    def close_all(self) -> None:
+    def close_all(self) -> list[Result]:
+        """关闭全部会话：仅移除成功关闭的；失败会话保留供重试。
+
+        返回每个会话一次 ``close()`` 的 Result（顺序与关闭时快照一致）。
+        """
         with self._lock:
-            sessions = list(self._sessions.values())
-            self._sessions.clear()
-        for s in sessions:
+            items = list(self._sessions.items())
+        results: list[Result] = []
+        for alias, session in items:
             try:
-                s.close()
-            except Exception:
-                pass
+                result = session.close()
+            except Exception as e:  # noqa: BLE001 — 汇总为 Result，避免丢失会话
+                with self._lock:
+                    session.state = SessionState.ERROR
+                result = Result.err(
+                    ErrorCode.INTERNAL_ERROR,
+                    f"关闭设备异常: {e}",
+                    context={"alias": alias},
+                )
+            results.append(result)
+            if result.status == "ok":
+                with self._lock:
+                    if self._sessions.get(alias) is session:
+                        self._sessions.pop(alias, None)
+        return results
 
     # ---- 复用规则（一次性 vs 会话共用同一条路径）----
 

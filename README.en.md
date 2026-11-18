@@ -270,7 +270,7 @@ Issues, PRs, and new vendor or model registrations are welcome. Public contracts
 - Use only on an **authorized bench or lab**. Do not let an agent transmit unattended on a vehicle control network or unauthorized production line
 - Confirm wiring, bitrate, and IDs before send / periodic; use an explicit duration or a local resident process for long runs
 - Keep MCP local; HTTP binds `127.0.0.1` only—do not expose it publicly
-- **Application-layer budgets (not hardware fail-safe)**: MCP / scenario periodic transmit requires a duration (max 300s); scenarios also cap wall time, per-step blocking, and cumulative send attempts. A driver or hardware fault may still leave transmission running
+- **Application-layer budgets (not hardware fail-safe)**: MCP / scenario periodic transmit requires a duration (max 300s); scenarios also cap wall time, per-step blocking, and cumulative send attempts. Stop/close failures return structured errors and keep tasks/sessions queryable for retry—this is not a hardware fail-safe; a driver or hardware fault may still leave transmission running
 
 ## Disclaimer
 

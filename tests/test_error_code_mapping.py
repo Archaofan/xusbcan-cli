@@ -54,6 +54,20 @@ def test_open_device_preserves_config_error_from_chuangxin():
     assert result.error.code == ErrorCode.CONFIG_ERROR.value
 
 
+def _session_with_bus(bus: can.BusABC) -> Session:
+    return Session(
+        name="t",
+        bus=bus,
+        spec=DeviceSpec(
+            vendor="zlg",
+            model="USBCAN-2E-U",
+            channel=0,
+            bitrate=BitrateConfig(nominal=500_000),
+        ),
+        state=SessionState.OPEN,
+    )
+
+
 def test_transmit_maps_capability_code():
     class _Bus(can.BusABC):
         def __init__(self) -> None:
@@ -70,21 +84,53 @@ def test_transmit_maps_capability_code():
         def shutdown(self):
             return None
 
-    session = Session(
-        name="t",
-        bus=_Bus(),
-        spec=DeviceSpec(
-            vendor="zlg",
-            model="USBCAN-2E-U",
-            channel=0,
-            bitrate=BitrateConfig(nominal=500_000),
-        ),
-        state=SessionState.OPEN,
+    result = transmit(
+        _session_with_bus(_Bus()),
+        CanFrame(arbitration_id=0x1, data=b"\x01", is_fd=True),
     )
-    result = transmit(session, CanFrame(arbitration_id=0x1, data=b"\x01", is_fd=True))
     assert result.status == "error"
     assert result.error is not None
     assert result.error.code == ErrorCode.CAPABILITY_UNSUPPORTED.value
+
+
+def test_transmit_maps_generic_can_error_to_send_failed():
+    class _Bus(can.BusABC):
+        def __init__(self) -> None:
+            super().__init__(channel="t")
+
+        def send(self, msg, timeout=None):
+            raise can.CanOperationError("tx queue full")
+
+        def _recv_internal(self, timeout):
+            return None, False
+
+        def shutdown(self):
+            return None
+
+    result = transmit(
+        _session_with_bus(_Bus()),
+        CanFrame(arbitration_id=0x1, data=b"\x01"),
+    )
+    assert result.status == "error"
+    assert result.error is not None
+    assert result.error.code == ErrorCode.SEND_FAILED.value
+
+
+def test_open_device_maps_plain_can_error_to_device_open_failed():
+    spec = DeviceSpec(
+        vendor="zlg",
+        model="USBCAN-2E-U",
+        channel=0,
+        bitrate=BitrateConfig(nominal=500_000),
+    )
+    with patch(
+        "xusbcan.adapters.registry.open_bus",
+        side_effect=can.CanInitializationError("open failed"),
+    ):
+        result = open_device(spec)
+    assert result.status == "error"
+    assert result.error is not None
+    assert result.error.code == ErrorCode.DEVICE_OPEN_FAILED.value
 
 
 def test_cli_periodic_rejects_nonfinite_duration():

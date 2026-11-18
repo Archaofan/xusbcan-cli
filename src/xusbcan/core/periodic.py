@@ -37,6 +37,8 @@ class PeriodicTask:
     task: Any  # can.broadcastmanager.CyclicSendTaskABC
     started_at: float = field(default_factory=time.time)
     duration_s: float | None = None
+    state: str = "running"  # running | stop_failed
+    stop_error: str | None = None
     _timer: threading.Timer | None = field(default=None, repr=False)
 
     def stop(self) -> None:
@@ -54,9 +56,12 @@ class PeriodicTask:
             "is_extended": self.frame.is_extended,
             "is_fd": self.frame.is_fd,
             "period_ms": round(self.period * 1000.0, 3),
+            "state": self.state,
         }
         if self.duration_s is not None:
             data["duration_s"] = self.duration_s
+        if self.stop_error is not None:
+            data["stop_error"] = self.stop_error
         return data
 
 
@@ -88,17 +93,9 @@ def _normalize_duration(duration_s: float | None) -> Result | float | None:
     return normalized
 
 
-def _reregister(session, name: str, task: PeriodicTask) -> None:
-    """停止失败时把任务放回会话，便于重试 stop。"""
-    if not session.add_periodic(name, task):
-        # 同名已被占用：尽力保留失败任务的可观测性（覆盖极少见竞态）
-        existing = session.pop_periodic(name)
-        if existing is not None:
-            try:
-                existing.stop()
-            except Exception:
-                pass
-        session.add_periodic(name, task)
+def _reregister(session, name: str, task: PeriodicTask) -> str:
+    """停止失败时把任务放回会话，便于重试 stop。返回实际登记名。"""
+    return session.restore_periodic(name, task)
 
 
 def start(
@@ -111,7 +108,7 @@ def start(
     """在已打开的 session 上启动一条周期发送。session 由调用方保证已打开。
 
     ``duration_s`` 为 None 时不自动停止（CLI 自行 sleep 后 stop；剧本逐步 stop）。
-    传入正数时到点自动移除并停止该任务；自动停止失败时会重新登记任务。
+    传入正数时到点自动移除并停止该任务；自动停止失败时会重新登记并标记 stop_failed。
     """
     period_n = _finite_positive("period", period)
     if isinstance(period_n, Result):
@@ -127,43 +124,41 @@ def start(
         return normalized
     duration = normalized
 
-    if len(session.snapshot_periodic()) >= MAX_PERIODIC_TASKS:
-        return Result.err(
-            ErrorCode.INVALID_ARGUMENT,
-            f"周期任务数已达上限 {MAX_PERIODIC_TASKS}",
-            context={"alias": session.name, "max_tasks": MAX_PERIODIC_TASKS},
-        )
-    if name in {t.name for t in session.snapshot_periodic()}:
-        return Result.err(
-            ErrorCode.INVALID_ARGUMENT,
-            f"周期任务已存在: {name}",
-            context={"alias": session.name, "name": name},
-        )
+    reserved = session.reserve_periodic(name, max_tasks=MAX_PERIODIC_TASKS)
+    if reserved.status == "error":
+        return reserved
 
     try:
         task = session.bus.send_periodic(frame.to_can_message(), period_n)
     except Exception as e:
+        session.cancel_periodic_reserve(name)
         from .session import map_error
 
         return Result.err(
             map_error(e, default_can=ErrorCode.INTERNAL_ERROR),
             f"启动周期发送失败: {e}",
         )
+
     pt = PeriodicTask(
         name=name, frame=frame, period=period_n, task=task, duration_s=duration
     )
-    if not session.add_periodic(name, pt):
+    if not session.commit_periodic(name, pt):
         try:
             pt.stop()
         except Exception as e:
+            # 底层已启动但无法登记：挂到可观测名下
+            pt.state = "stop_failed"
+            pt.stop_error = f"commit failed after start: {e}"
+            alt = session.restore_periodic(name, pt)
             return Result.err(
                 ErrorCode.INTERNAL_ERROR,
-                f"周期任务已存在且回滚停止失败: {name}: {e}",
-                context={"alias": session.name, "name": name},
+                f"周期任务登记失败且回滚停止失败: {alt}: {e}",
+                context={"alias": session.name, "name": alt},
             )
+        session.cancel_periodic_reserve(name)
         return Result.err(
-            ErrorCode.INVALID_ARGUMENT,
-            f"周期任务已存在: {name}",
+            ErrorCode.INTERNAL_ERROR,
+            f"周期任务预留丢失: {name}",
             context={"alias": session.name, "name": name},
         )
 
@@ -175,7 +170,9 @@ def start(
                 return
             try:
                 expired.stop()
-            except Exception:
+            except Exception as exc:
+                expired.state = "stop_failed"
+                expired.stop_error = str(exc)
                 _reregister(session, name, expired)
 
         timer = threading.Timer(duration, _expire)
@@ -194,11 +191,13 @@ def stop(session, name: str) -> Result:
     try:
         task.stop()
     except Exception as e:
-        _reregister(session, name, task)
+        task.state = "stop_failed"
+        task.stop_error = str(e)
+        restored = _reregister(session, name, task)
         return Result.err(
             ErrorCode.INTERNAL_ERROR,
             f"停止周期发送失败: {e}",
-            context={"alias": session.name, "name": name},
+            context={"alias": session.name, "name": restored},
         )
     return Result.ok({"name": name, "stopped": True})
 

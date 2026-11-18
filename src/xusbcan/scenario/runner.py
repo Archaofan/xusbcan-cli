@@ -91,8 +91,12 @@ class ScenarioRuntime:
         self.owned_periodics = [k for k in self.owned_periodics if k != key]
 
     def cleanup_periodics(self, manager: SessionManager) -> list[dict]:
-        """best-effort 停止本剧本仍登记的周期任务；单任务失败不影响后续。"""
+        """停止本剧本仍登记的周期任务；单任务失败不影响后续尝试。
+
+        成功停止的任务从 ``owned_periodics`` 移除；失败的保留，便于重试与观测。
+        """
         cleaned: list[dict] = []
+        remaining: list[tuple[str, str]] = []
         for alias, name in list(self.owned_periodics):
             entry: dict[str, Any] = {"device": alias, "name": name, "stopped": False}
             try:
@@ -100,10 +104,15 @@ class ScenarioRuntime:
                 entry["stopped"] = result.status == "ok"
                 if result.status != "ok" and result.error is not None:
                     entry["error"] = result.error.message
+                    if result.error.detail:
+                        entry["detail"] = result.error.detail
             except Exception as exc:  # noqa: BLE001 — 隔离清理失败
                 entry["error"] = f"{type(exc).__name__}: {exc}"
             cleaned.append(entry)
-            self.forget_periodic(alias, name)
+            if entry["stopped"]:
+                continue
+            remaining.append((alias, name))
+        self.owned_periodics = remaining
         return cleaned
 
 
@@ -854,7 +863,7 @@ def run_scenario(
     """按顺序执行步骤。默认遇错停止；``data.steps`` 含每步耗时与结果。
 
     结束时（含失败与异常）会停止本剧本仍登记的周期发送任务。
-    总墙钟超时不会返回成功。
+    总墙钟超时或周期清理失败都不会返回成功。
     """
     if not steps:
         return Result.err(ErrorCode.INVALID_ARGUMENT, "剧本没有步骤")
@@ -885,12 +894,14 @@ def run_scenario(
         cleaned = runtime.cleanup_periodics(manager)
 
     overdue = runtime.overdue()
+    cleanup_failed = any(not item.get("stopped", False) for item in cleaned)
     payload = {
         "steps": records,
         "failed_at": failed_at,
         "count": len(records),
         "vars": dict(vars_map),
         "cleaned_periodics": cleaned,
+        "cleanup_failed": cleanup_failed,
         "budget": {
             "steps_run": runtime.steps_run,
             "max_steps": MAX_SCENARIO_STEPS,
@@ -908,6 +919,15 @@ def run_scenario(
         return Result.err(
             ErrorCode.INTERNAL_ERROR,
             f"剧本异常: {type(crash).__name__}: {crash}",
+            data=payload,
+        )
+    if cleanup_failed:
+        message = "剧本周期任务清理失败"
+        if failed_at is not None:
+            message = f"剧本在步骤 {failed_at} 失败，且周期任务清理失败"
+        return Result.err(
+            ErrorCode.INTERNAL_ERROR,
+            message,
             data=payload,
         )
     if overdue and failed_at is None:

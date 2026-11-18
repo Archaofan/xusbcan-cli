@@ -374,8 +374,80 @@ def test_scenario_cleanup_continues_after_one_stop_failure():
     assert by[("b", "hb")]["stopped"] is True
     assert periodic_list(mgr, "b").data["tasks"] == []
     assert len(periodic_list(mgr, "a").data["tasks"]) == 1
+    assert ("a", "ha") in runtime.owned_periodics
+    assert ("b", "hb") not in runtime.owned_periodics
     pt.task = real
     assert periodic_stop(mgr, "a", "ha").status == "ok"
+    mgr.close_all()
+
+
+def test_scenario_cleanup_failure_returns_error():
+    """步骤成功但 finally 清理失败时，整体不得 Result.ok。"""
+    from xusbcan.core import periodic_list, periodic_stop
+    from xusbcan.scenario import runner as runner_mod
+    from xusbcan.scenario.runner import run_scenario
+
+    mgr = _mgr()
+    open_session(mgr, "a")
+    steps = [
+        {
+            "action": "periodic_start",
+            "device": "a",
+            "name": "hx",
+            "id": "0x102",
+            "data": "03",
+            "period": 0.05,
+            "duration_s": 30.0,
+        },
+        {"action": "sleep", "seconds": 0.01},
+    ]
+    original_cleanup = runner_mod.ScenarioRuntime.cleanup_periodics
+
+    def _cleanup_with_boom(self, manager):
+        for alias, name in list(self.owned_periodics):
+            sess = manager.get(alias)
+            if sess is None:
+                continue
+            task = sess.pop_periodic(name)
+            if task is None:
+                continue
+
+            class _BoomStop:
+                def stop(self) -> None:
+                    raise RuntimeError("scenario cleanup boom")
+
+            task.task = _BoomStop()
+            sess.add_periodic(name, task)
+        return original_cleanup(self, manager)
+
+    runner_mod.ScenarioRuntime.cleanup_periodics = _cleanup_with_boom  # type: ignore
+    try:
+        out = run_scenario(mgr, steps)
+    finally:
+        runner_mod.ScenarioRuntime.cleanup_periodics = original_cleanup  # type: ignore
+
+    assert out.status == "error"
+    assert out.error is not None
+    assert "清理失败" in out.error.message
+    assert out.data["cleanup_failed"] is True
+    assert out.data["cleaned_periodics"][0]["stopped"] is False
+    assert len(periodic_list(mgr, "a").data["tasks"]) >= 1
+
+    for t in list(periodic_list(mgr, "a").data["tasks"]):
+        name = t["name"]
+        sess = mgr.get("a")
+        assert sess is not None
+        pt2 = sess.pop_periodic(name)
+        if pt2 is None:
+            continue
+
+        class _Ok:
+            def stop(self) -> None:
+                return None
+
+        pt2.task = _Ok()
+        sess.add_periodic(name, pt2)
+        assert periodic_stop(mgr, "a", name).status == "ok"
     mgr.close_all()
 
 
