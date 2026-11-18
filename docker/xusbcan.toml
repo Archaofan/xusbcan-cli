@@ -1,0 +1,18 @@
+# Container / Glama smoke config: python-can virtual only (no vendor SDK, no USB).
+# Real hardware still uses a host-side xusbcan.toml + user-supplied drivers.
+
+[server]
+backend = "stdio"
+log_level = "INFO"
+
+[[devices]]
+name = "bus0"
+interface = "virtual"
+channel = "xusbcan-docker-0"
+nominal = 500000
+
+[[devices]]
+name = "bus1"
+interface = "virtual"
+channel = "xusbcan-docker-1"
+nominal = 500000

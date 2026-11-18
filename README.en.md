@@ -13,6 +13,8 @@ Runs as a backend service with both a standard **CLI** and an **MCP (Model Conte
 
 China mirror: [Gitee](https://gitee.com/carson0323/xusbcan-cli) (synced from GitHub)
 
+Directory listing: [Glama](https://glama.ai/mcp/servers/Archaofan/xusbcan-cli) (container release notes in [`GLAMA.md`](GLAMA.md); real hardware still needs a local install + your own drivers)
+
 ## Vision
 
 Agents should drive a CAN bus like any other tool: structured output, stable contracts, programmatic invocation.
