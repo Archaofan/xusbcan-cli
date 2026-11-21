@@ -14,6 +14,10 @@ build/
 .idea/
 .vscode/
 
+# Cursor 个人配置（仅 .cursor/rules/ 可公开跟踪）
+.cursor/*
+!.cursor/rules/
+
 # Local publisher binary (download as needed)
 mcp-publisher.exe
 mcp-publisher
